@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Painel de Gerenciamento Netplay</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    </head>
+<body>
+    <div class="container">
+        <h1>Painel de Gerenciamento</h1>
+
+        <div id="login-section" class="card">
+            <h2>Login</h2>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Email:</label>
+                    <input type="email" id="username" name="username" required />
+                </div>
+                <div class="form-group">
+                    <label for="password">Senha:</label>
+                    <input type="password" id="password" name="password" required />
+                </div>
+                <button type="submit">Entrar</button>
+                <p id="login-message" class="message"></p>
+            </form>
+        </div>
+
+        <div id="panel-section" class="card hidden">
+            <h2>Bem-vindo ao Painel!</h2>
+
+            <div class="main-buttons">
+                <button id="btn-trocar-servidor">1 - Trocar clientes de servidor</button>
+            </div>
+
+            <div id="trocar-servidor-options" class="hidden">
+                <button id="btn-cliente-individual">1 - Cliente Individual</button>
+                <button id="btn-todos-clientes">
+                    2 - Todos Clientes (não implementado)
+                </button>
+            </div>
+
+            <div id="cliente-individual-section" class="hidden">
+                <h3>Buscar Cliente Individual</h3>
+                <form id="search-customer-form">
+                    <div class="form-group">
+                        <label for="account-number">Número da Conta do Cliente:</label>
+                        <input type="text" id="account-number" name="account_number" required />
+                    </div>
+                    <button type="submit">Buscar Cliente</button>
+                    <p id="search-message" class="message"></p>
+                </form>
+
+                <div id="customer-details" class="hidden">
+                    <h4>Detalhes do Cliente:</h4>
+                    <div id="customer-data"></div>
+                    <button id="btn-migrar-cliente">Migrar Cliente</button>
+                </div>
+            </div>
+
+            <button id="btn-logout" class="logout-button">Sair</button>
+        </div>
+    </div>
+
+    <div id="modal-migrar" class="hidden modal">
+        <div class="modal-content">
+            <span class="close-button" id="close-modal-migrar">&times;</span>
+            <h3>Migrar Cliente</h3>
+            <form id="form-migrar">
+                <input type="hidden" id="migrar-customer-id" name="customer_id" />
+                <div class="form-group">
+                    <label for="server-select-modal">Novo Servidor:</label>
+                    <select id="server-select-modal" name="server_id">
+                        <option value="">Selecione um servidor (opcional)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="package-select-modal">Novo Plano:</label>
+                    <select id="package-select-modal" name="package_id">
+                        <option value="">Selecione um plano (opcional)</option>
+                    </select>
+                </div>
+                <button type="submit">Confirmar Migração</button>
+                <p id="migrar-status" class="message"></p>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
