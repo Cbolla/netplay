@@ -45,7 +45,7 @@ h1, h2, h3, h4 {
 .form-group input[type="email"],
 .form-group input[type="password"],
 .form-group input[type="text"],
-.form-group select {
+.form-group select { /* Estilo para inputs e selects */
     width: calc(100% - 20px);
     padding: 10px;
     border: 1px solid #ccc;
@@ -83,7 +83,7 @@ button:hover {
     margin: 10px auto;
 }
 
-/* A CLASSE HIDDEN DEVE SEMPRE TER DISPLAY: NONE */
+/* Classe para esconder elementos - CRUCIAL para o modal */
 .hidden {
     display: none;
 }
@@ -129,42 +129,43 @@ button:hover {
     font-size: 15px;
 }
 
-/* Estilos do Modal - CORREÇÃO NA REGRA DE DISPLAY */
+/* Estilos do Modal */
 .modal {
-    position: fixed;
+    position: fixed; /* Fixado na tela */
     top: 0;
     left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.5);
-    align-items: center;
-    justify-content: center;
-    z-index: 999;
-    /* REMOVIDO: display: flex; daqui */
+    width: 100vw; /* Largura total da viewport */
+    height: 100vh; /* Altura total da viewport */
+    background: rgba(0, 0, 0, 0.5); /* Fundo semi-transparente escuro */
+    align-items: center; /* Centraliza verticalmente */
+    justify-content: center; /* Centraliza horizontalmente */
+    z-index: 999; /* Garante que o modal fique acima de outros elementos */
 }
 
-/* Adicionamos uma regra mais específica para exibir o modal SOMENTE QUANDO ele NÃO TIVER a classe 'hidden' */
+/* Esta regra exibe o modal como flexbox SOMENTE QUANDO ele NÃO tem a classe 'hidden'. */
+/* Isso resolve o problema de sobreposição que você encontrou. */
 .modal:not(.hidden) {
     display: flex;
 }
+
 
 .modal-content {
     background: white;
     padding: 20px;
     border-radius: 10px;
     width: 90%;
-    max-width: 400px;
-    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
-    position: relative;
+    max-width: 400px; /* Largura máxima para o conteúdo do modal */
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19); /* Sombra para destaque */
+    position: relative; /* Necessário para posicionar o botão de fechar */
 }
 
 .close-button {
     color: #aaa;
-    float: right;
+    float: right; /* Alinha o botão para a direita */
     font-size: 28px;
     font-weight: bold;
     cursor: pointer;
-    position: absolute;
+    position: absolute; /* Posiciona absolutamente dentro do modal-content */
     top: 10px;
     right: 15px;
 }
