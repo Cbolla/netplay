@@ -3,25 +3,17 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description"
-        content="Painel de Gerenciamento Netplay - Ferramenta administrativa para migração de clientes">
     <title>Netplay Admin | Painel de Gerenciamento</title>
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-
 <body>
     <div class="app-container">
-        <div id="toast-container" class="toast-container"></div>
-
         <div id="loading-overlay" class="loading-overlay hidden">
             <div class="loading-spinner"></div>
             <div class="loading-message"></div>
         </div>
-
         <div class="container">
             <header class="app-header">
                 <div class="logo">
@@ -37,25 +29,16 @@
                 <div class="card-header">
                     <h2><i class="fas fa-sign-in-alt"></i> Login</h2>
                 </div>
-                <form id="login-form" method="post" action="/api/login">
+                <form id="login-form">
                     <div class="form-group">
-                        <label for="username">
-                            <i class="fas fa-envelope"></i> Email:
-                        </label>
-                        <input type="email" id="username" name="username" required placeholder="seu@email.com"
-                            autocomplete="username" />
+                        <label for="username"><i class="fas fa-envelope"></i> Email:</label>
+                        <input type="email" id="username" name="username" required placeholder="seu@email.com" autocomplete="username" />
                     </div>
                     <div class="form-group">
-                        <label for="password">
-                            <i class="fas fa-lock"></i> Senha:
-                        </label>
-                        <input type="password" id="password" name="password" required placeholder="••••••••"
-                            autocomplete="current-password" />
+                        <label for="password"><i class="fas fa-lock"></i> Senha:</label>
+                        <input type="password" id="password" name="password" required placeholder="••••••••" autocomplete="current-password" />
                     </div>
-                    <button type="submit" class="btn-primary">
-                        <i class="fas fa-sign-in-alt"></i> Entrar
-                    </button>
-                    <p id="login-message" class="message"></p>
+                    <button type="submit" class="btn-primary"><i class="fas fa-sign-in-alt"></i> Entrar</button>
                 </form>
             </div>
 
@@ -63,56 +46,29 @@
                 <div class="card-header">
                     <h2><i class="fas fa-tachometer-alt"></i> Painel de Controle</h2>
                 </div>
-
                 <div class="panel-content">
-                    <div class="main-buttons">
-                        <button id="btn-trocar-servidor" class="btn-primary">
-                            <i class="fas fa-server"></i> Trocar clientes de servidor
-                        </button>
-                    </div>
-
-                    <div id="trocar-servidor-options" class="hidden options-grid">
-                        <button id="btn-cliente-individual" class="btn-secondary">
-                            <i class="fas fa-users"></i> Migrar Clientes
-                        </button>
-                        </div>
-
-                    <div id="cliente-individual-section" class="hidden">
+                    <div id="cliente-individual-section">
                         <div class="section-header">
                             <h3><i class="fas fa-search"></i> Buscar Cliente(s)</h3>
                         </div>
-
                         <form id="search-customer-form" class="search-form">
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label for="account-number">
-                                        <i class="fas fa-id-card"></i> Número da Conta:
-                                    </label>
-                                    <input type="text" id="account-number" name="account_number"
-                                        placeholder="Digite o número da conta" />
+                                    <label for="account-number"><i class="fas fa-id-card"></i> Número da Conta:</label>
+                                    <input type="text" id="account-number" name="account_number" placeholder="Digite para buscar..." />
                                 </div>
-
                                 <div class="form-group">
-                                    <label for="source-server-select">
-                                        <i class="fas fa-filter"></i> Filtrar por Servidor:
-                                    </label>
+                                    <label for="source-server-select"><i class="fas fa-filter"></i> Filtrar por Servidor Atual:</label>
                                     <select id="source-server-select" name="source_server_id">
                                         <option value="">Todos os servidores</option>
                                     </select>
                                 </div>
                             </div>
-
-                            <button type="submit" class="btn-primary">
-                                <i class="fas fa-search"></i> Buscar Cliente(s)
-                            </button>
                         </form>
-
-                        <p id="search-message" class="message"></p>
 
                         <div id="customer-results-container" class="hidden">
                             <div class="results-header">
                                 <h4><i class="fas fa-list"></i> Resultados</h4>
-
                                 <div class="table-actions">
                                     <div class="select-all">
                                         <input type="checkbox" id="select-all-customers">
@@ -123,7 +79,6 @@
                                     </button>
                                 </div>
                             </div>
-
                             <div class="table-responsive">
                                 <table id="customer-table" class="data-table">
                                     <thead>
@@ -132,21 +87,17 @@
                                             <th>Conta</th>
                                             <th>Nome</th>
                                             <th>Servidor</th>
-                                            <th width="120px">Ações</th>
+                                            <th width="220px">Ações</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
-                                    </tbody>
+                                    <tbody></tbody>
                                 </table>
                             </div>
                         </div>
                     </div>
                 </div>
-
                 <div class="panel-footer">
-                    <button id="btn-logout" class="btn-danger">
-                        <i class="fas fa-sign-out-alt"></i> Sair
-                    </button>
+                    <button id="btn-logout" class="btn-danger"><i class="fas fa-sign-out-alt"></i> Sair</button>
                 </div>
             </div>
         </div>
@@ -155,42 +106,18 @@
     <div id="modal-migrar" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="fas fa-exchange-alt"></i> Migrar Clientes</h3>
-                <button class="close-button" id="close-modal-migrar">
-                    <i class="fas fa-times"></i>
-                </button>
+                <h3><i class="fas fa-exchange-alt"></i> Migrar Servidor</h3>
+                <button class="close-button" id="close-modal-migrar"><i class="fas fa-times"></i></button>
             </div>
-
             <form id="form-migrar">
-                <input type="hidden" id="migrar-customer-id" name="customer_id" />
-
                 <div class="form-group">
-                    <label for="server-select-modal">
-                        <i class="fas fa-server"></i> Novo Servidor:
-                    </label>
-                    <select id="server-select-modal" name="server_id" class="select-input">
-                        <option value="">Selecione (opcional)</option>
-                    </select>
+                    <label for="server-select-modal"><i class="fas fa-server"></i> Novo Servidor:</label>
+                    <select id="server-select-modal" name="server_id" class="select-input" required></select>
                 </div>
-
-                <div class="form-group">
-                    <label for="package-select-modal">
-                        <i class="fas fa-box"></i> Novo Plano:
-                    </label>
-                    <select id="package-select-modal" name="package_id" class="select-input">
-                        <option value="">Selecione (opcional)</option>
-                    </select>
-                </div>
-
                 <div class="modal-footer">
-                    <button type="button" class="btn-secondary" id="cancel-modal-migrar">
-                        Cancelar
-                    </button>
-                    <button type="submit" class="btn-primary">
-                        <i class="fas fa-check"></i> Confirmar Migração
-                    </button>
+                    <button type="button" class="btn-secondary" id="cancel-modal-migrar">Cancelar</button>
+                    <button type="submit" class="btn-primary"><i class="fas fa-check"></i> Confirmar Migração</button>
                 </div>
-
                 <div id="migrar-status" class="message"></div>
             </form>
         </div>
@@ -200,16 +127,11 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3><i class="fas fa-info-circle"></i> Detalhes do Cliente</h3>
-                <button class="close-button" id="close-detail-modal">
-                    <i class="fas fa-times"></i>
-                </button>
+                <button class="close-button" id="close-detail-modal"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body" id="customer-details-content">
-                </div>
+            <div class="modal-body" id="customer-details-content"></div>
         </div>
     </div>
-
     <script src="/static/script.js"></script>
 </body>
-
 </html>
