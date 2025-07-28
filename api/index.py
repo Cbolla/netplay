@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 # --- Configurações da API Netplay (não mude, elas virão das suas variáveis de ambiente) ---
-NETPLAY_API_BASE_URL = os.getenv("NETPLAY_API_BASE_URL", "https://api.netplay.sigma.vin")
+NETPLAY_API_BASE_URL = os.getenv("NETPLAY_API_BASE_URL", "https://netplay.sigma.vin")
 NETPLAY_HEADERS = {
     "User-Agent": os.getenv("NETPLAY_USER_AGENT", "seu_user_agent_aqui"),
     "Accept": "application/json",
