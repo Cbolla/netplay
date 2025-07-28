@@ -1,3 +1,6 @@
+# /api/index.py
+
+# Suas importações originais
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +12,22 @@ import httpx
 import unicodedata
 import re
 
+# 1. ADICIONE ESTA IMPORTAÇÃO
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+
+# 2. ADICIONE ESTE BLOCO DE CÓDIGO LOGO APÓS A LINHA "app = FastAPI()"
+# Isto permite que seu frontend e backend se comuniquem na Vercel.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite que qualquer site acesse sua API.
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos os métodos (POST, GET, PUT, etc.)
+    allow_headers=["*"],  # Permite todos os cabeçalhos
+)
+
+# --- Daqui para baixo, todo o seu código continua EXATAMENTE IGUAL ---
 
 # Mapa de Servidores
 SERVER_MAP = {
@@ -43,15 +61,11 @@ class LoginRequest(BaseModel): username: str; password: str
 class CustomerInfo(BaseModel): id: str; username: str; package_name: str
 class BatchMigrateRequest(BaseModel): customers: list[CustomerInfo]; server_id: str; server_name: str
 
-# (NOVO) Função para normalizar nomes de planos de forma mais inteligente
 def normalize_string(s: str) -> str:
     s = str(s).lower().strip()
-    # Substitui abreviações comuns ANTES de remover caracteres
     s = s.replace('s/', 'sem')
     s = s.replace('c/', 'com')
-    # Remove acentos
     s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-    # Remove todos os outros caracteres não alfanuméricos
     s = re.sub(r'[^a-z0-9]', '', s)
     return s
 
@@ -128,7 +142,7 @@ async def batch_migrar_clientes(request: BatchMigrateRequest):
         raise HTTPException(status_code=500, detail=str(e))
     return {"message": "Processo de migração concluído.", "results": results}
 
-# --- Funções Auxiliares (ATUALIZADO) ---
+# --- Funções Auxiliares ---
 async def process_customer_migration(customer: CustomerInfo, request: BatchMigrateRequest, client: httpx.AsyncClient):
     result = {"username": customer.username, "migration_status": "Pendente", "maxplayer_status": "Pendente"}
     headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}", "content-type": "application/json"}
