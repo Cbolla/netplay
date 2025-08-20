@@ -95,6 +95,76 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Nova seção para gerar links de clientes -->
+                    <div id="client-link-section" class="section-divider">
+                        <div class="section-header">
+                            <h3><i class="fas fa-link"></i> Gerar Link de Acesso para Cliente</h3>
+                        </div>
+                        <form id="generate-client-link-form" class="search-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="client-username-input"><i class="fas fa-user"></i> Usuário do Cliente:</label>
+                                    <input type="text" id="client-username-input" name="client_username" placeholder="Ex: 66417744" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-password-input"><i class="fas fa-lock"></i> Senha do Cliente:</label>
+                                    <input type="text" id="client-password-input" name="client_password" placeholder="Ex: 06630396" required />
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button type="submit" class="btn-primary">
+                                    <i class="fas fa-link"></i> Gerar Link de Acesso
+                                </button>
+                            </div>
+                        </form>
+                        
+                        <div id="generated-link-container" class="hidden">
+                            <div class="link-result">
+                                <h4><i class="fas fa-check-circle"></i> Link Gerado com Sucesso!</h4>
+                                <div class="link-display">
+                                    <input type="text" id="generated-link" readonly class="link-input" />
+                                    <button type="button" id="copy-link-btn" class="btn-copy">
+                                        <i class="fas fa-copy"></i> Copiar
+                                    </button>
+                                </div>
+                                <div class="link-instructions">
+                                    <p><i class="fas fa-info-circle"></i> Envie este link para o cliente. Ele poderá acessar diretamente o painel de migração.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Nova seção para visualizar links gerados -->
+                    <div id="generated-links-section" class="section-divider">
+                        <div class="section-header">
+                            <h3><i class="fas fa-list"></i> Links Gerados</h3>
+                            <button id="refresh-links-btn" class="btn-secondary small-button">
+                                <i class="fas fa-sync-alt"></i> Atualizar
+                            </button>
+                        </div>
+                        <div id="generated-links-container" class="hidden">
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Cliente</th>
+                                            <th>Data de Criação</th>
+                                            <th>Último Acesso</th>
+                                            <th>Status</th>
+                                            <th width="200px">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="generated-links-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="no-links-message" class="empty-state">
+                            <i class="fas fa-link"></i>
+                            <p>Nenhum link foi gerado ainda.</p>
+                            <p>Use a seção acima para gerar links para seus clientes.</p>
+                        </div>
+                    </div>
                 </div>
                 <div class="panel-footer">
                     <button id="btn-logout" class="btn-danger"><i class="fas fa-sign-out-alt"></i> Sair</button>

@@ -40,6 +40,30 @@ const Loading = {
     }
 };
 
+// Função para requisições à API
+async function apiRequest(url, options = {}) {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.detail || 'Erro na requisição');
+        }
+        
+        return data;
+    } catch (error) {
+        console.error('Erro na API:', error);
+        throw error;
+    }
+}
+
 // Sistema de Modal
 const Modal = {
     show(modalId) {
@@ -193,6 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>
                     <button class="btn-secondary small-button view-details-btn" data-id="${client.id}"><i class="fas fa-eye"></i> Ver Mais</button>
                     <button class="btn-action small-button migrate-single-btn" data-id="${client.id}"><i class="fas fa-exchange-alt"></i> Migrar</button>
+                    <button class="btn-primary small-button generate-link-btn" data-username="${client.username}" data-id="${client.id}"><i class="fas fa-link"></i> Gerar Link</button>
                 </td>
             `;
         });
@@ -213,6 +238,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const migrateBtn = e.target.closest('.migrate-single-btn');
         if(migrateBtn) {
             handleSingleMigration(migrateBtn.dataset.id);
+            return;
+        }
+        const generateLinkBtn = e.target.closest('.generate-link-btn');
+        if(generateLinkBtn) {
+            handleGenerateClientLink(generateLinkBtn.dataset.username, generateLinkBtn.dataset.id);
             return;
         }
     });
@@ -320,16 +350,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 migrarStatusMessage.innerHTML += '<h4>Resultados Detalhados:</h4><ul>';
                 data.results.forEach(res => {
                     const statusClass = res.migration_status.includes('sucesso') ? 'success' : 'error';
-                    const maxplayerStatus = res.maxplayer_status;
-                    let maxplayerClass = 'info';
-                    if (maxplayerStatus.includes('sucesso')) maxplayerClass = 'success';
-                    if (maxplayerStatus.includes('Não') || maxplayerStatus.includes('Erro') || maxplayerStatus.includes('Falha')) maxplayerClass = 'error';
-
                     migrarStatusMessage.innerHTML += `
                         <li class="message ${statusClass}">
-                            <strong>${res.username}:</strong> 
-                            Migração Netplay: ${res.migration_status} | 
-                            Migração Maxplayer: <strong class="message ${maxplayerClass}" style="padding: 2px 5px; border-radius: 4px;">${maxplayerStatus}</strong>
+                            <strong>${res.username}:</strong> ${res.migration_status}
                         </li>
                     `;
                 });
@@ -350,6 +373,258 @@ document.addEventListener('DOMContentLoaded', () => {
             Loading.hide();
         }
     }
+
+    // --- Funcionalidade de Geração de Links para Clientes ---
+    const generateClientLinkForm = document.getElementById('generate-client-link-form');
+    const generatedLinkContainer = document.getElementById('generated-link-container');
+    const generatedLinkInput = document.getElementById('generated-link');
+    const copyLinkBtn = document.getElementById('copy-link-btn');
+
+    // Função para gerar link diretamente da tabela
+    async function handleGenerateClientLink(username, clientId) {
+        try {
+            Loading.show();
+            
+            // Buscar dados do cliente para obter a senha
+            const clientData = await getClientData(clientId);
+            if (!clientData || !clientData.password) {
+                Toast.show('Não foi possível obter os dados do cliente.', 'error');
+                return;
+            }
+            
+            const response = await apiRequest('/api/create_client_link', {
+                method: 'POST',
+                body: JSON.stringify({
+                    client_username: username,
+                    client_password: clientData.password
+                })
+            });
+            
+            if (response.success) {
+                // Mostrar o link gerado
+                generatedLinkInput.value = response.link_url;
+                generatedLinkContainer.classList.remove('hidden');
+                
+                // Scroll para a seção do link
+                generatedLinkContainer.scrollIntoView({ behavior: 'smooth' });
+                
+                // Recarregar a lista de links gerados
+                loadGeneratedLinks();
+                
+                Toast.show('Link gerado com sucesso!', 'success');
+            } else {
+                Toast.show(`Erro na API: ${response.error}`, 'error');
+            }
+        } catch (error) {
+            console.error('Erro ao gerar link:', error);
+            Toast.show(`Erro ao gerar link: ${error.message}`, 'error');
+        } finally {
+            Loading.hide();
+        }
+    }
+    
+    // Função auxiliar para buscar dados do cliente
+    async function getClientData(clientId) {
+        try {
+            const response = await apiRequest(`/api/client/${clientId}`);
+            return response.success ? response.client : null;
+        } catch (error) {
+            console.error('Erro ao buscar dados do cliente:', error);
+            return null;
+        }
+    }
+
+    generateClientLinkForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData(generateClientLinkForm);
+        const clientUsername = formData.get('client_username');
+        const clientPassword = formData.get('client_password');
+        
+        if (!clientUsername || !clientPassword) {
+            Toast.show('Por favor, preencha todos os campos.', 'error');
+            return;
+        }
+        
+        try {
+            // Chama a API para criar o link do cliente
+            const response = await apiRequest('/api/create_client_link', {
+                method: 'POST',
+                body: JSON.stringify({
+                    client_username: clientUsername,
+                    client_password: clientPassword
+                })
+            });
+            
+            if (response.success) {
+                // Exibe o link gerado
+                generatedLinkInput.value = response.link_url;
+                generatedLinkContainer.classList.remove('hidden');
+                
+                // Recarregar a lista de links gerados
+                loadGeneratedLinks();
+                
+                Toast.show('Link gerado com sucesso!', 'success');
+                
+                // Scroll para mostrar o resultado
+                generatedLinkContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                Toast.show('Erro ao gerar link: ' + (response.message || 'Erro desconhecido'), 'error');
+            }
+        } catch (error) {
+            Toast.show('Erro ao gerar link: ' + error.message, 'error');
+        }
+    });
+
+    // Funcionalidade de copiar link
+    copyLinkBtn.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(generatedLinkInput.value);
+            Toast.show('Link copiado para a área de transferência!', 'success');
+            
+            // Feedback visual temporário
+            const originalText = copyLinkBtn.innerHTML;
+            copyLinkBtn.innerHTML = '<i class="fas fa-check"></i> Copiado!';
+            copyLinkBtn.style.backgroundColor = '#10b981';
+            
+            setTimeout(() => {
+                copyLinkBtn.innerHTML = originalText;
+                copyLinkBtn.style.backgroundColor = '';
+            }, 2000);
+        } catch (err) {
+            // Fallback para navegadores mais antigos
+            generatedLinkInput.select();
+            document.execCommand('copy');
+            Toast.show('Link copiado para a área de transferência!', 'success');
+        }
+    });
+
+    // --- Funcionalidade de Gerenciamento de Links Gerados ---
+    const refreshLinksBtn = document.getElementById('refresh-links-btn');
+    const generatedLinksContainer = document.getElementById('generated-links-container');
+    const noLinksMessage = document.getElementById('no-links-message');
+    const generatedLinksTbody = document.getElementById('generated-links-tbody');
+
+    // Função para carregar links gerados
+    async function loadGeneratedLinks() {
+        try {
+            const data = await apiRequest('/api/generated_links');
+            
+            if (data.success && data.links && data.links.length > 0) {
+                displayGeneratedLinks(data.links);
+                generatedLinksContainer.classList.remove('hidden');
+                noLinksMessage.classList.add('hidden');
+            } else {
+                generatedLinksContainer.classList.add('hidden');
+                noLinksMessage.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('Erro ao carregar links:', error);
+            Toast.show('Erro ao carregar links gerados.', 'error');
+        }
+    }
+
+    // Função para exibir links na tabela
+    function displayGeneratedLinks(links) {
+        generatedLinksTbody.innerHTML = '';
+        
+        links.forEach(link => {
+            const row = document.createElement('tr');
+            const createdDate = new Date(link.created_at).toLocaleDateString('pt-BR');
+            const lastAccess = link.last_access ? new Date(link.last_access).toLocaleDateString('pt-BR') : 'Nunca';
+            const status = link.is_active ? 'Ativo' : 'Inativo';
+            const statusClass = link.is_active ? 'status-active' : 'status-inactive';
+            
+            row.innerHTML = `
+                <td>${link.client_username}</td>
+                <td>${createdDate}</td>
+                <td>${lastAccess}</td>
+                <td><span class="status-badge ${statusClass}">${status}</span></td>
+                <td>
+                    <div class="table-actions">
+                        <button class="btn-table btn-copy-link" data-link="${link.link_url}" title="Copiar Link">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <button class="btn-table btn-delete-link" data-link-id="${link.id}" title="Excluir Link">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            
+            generatedLinksTbody.appendChild(row);
+        });
+        
+        // Adicionar event listeners para os botões da tabela
+        addTableEventListeners();
+    }
+
+    // Função para adicionar event listeners aos botões da tabela
+    function addTableEventListeners() {
+        // Botões de copiar link
+        document.querySelectorAll('.btn-copy-link').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const linkUrl = e.currentTarget.dataset.link;
+                try {
+                    await navigator.clipboard.writeText(linkUrl);
+                    Toast.show('Link copiado para a área de transferência!', 'success');
+                } catch (error) {
+                    // Fallback para navegadores mais antigos
+                    const textArea = document.createElement('textarea');
+                    textArea.value = linkUrl;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    Toast.show('Link copiado para a área de transferência!', 'success');
+                }
+            });
+        });
+        
+        // Botões de excluir link
+        document.querySelectorAll('.btn-delete-link').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const linkId = e.currentTarget.dataset.linkId;
+                if (confirm('Tem certeza que deseja excluir este link?')) {
+                    await deleteGeneratedLink(linkId);
+                }
+            });
+        });
+    }
+
+    // Função para excluir um link gerado
+    async function deleteGeneratedLink(linkId) {
+        try {
+            Loading.show();
+            const response = await apiRequest(`/api/generated_links/${linkId}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                Toast.show('Link excluído com sucesso!', 'success');
+                loadGeneratedLinks(); // Recarregar a lista
+            } else {
+                Toast.show(data.error || 'Erro ao excluir link.', 'error');
+            }
+        } catch (error) {
+            console.error('Erro ao excluir link:', error);
+            Toast.show('Erro ao excluir link.', 'error');
+        } finally {
+            Loading.hide();
+        }
+    }
+
+    // Event listener para o botão de atualizar links
+    if (refreshLinksBtn) {
+        refreshLinksBtn.addEventListener('click', loadGeneratedLinks);
+    }
+
+    // Carregar links quando a página for carregada
+    document.addEventListener('DOMContentLoaded', () => {
+        // Carregar links após um pequeno delay para garantir que o usuário esteja logado
+        setTimeout(loadGeneratedLinks, 1000);
+    });
 
     // --- Inicialização ---
     showLogin();
