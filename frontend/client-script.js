@@ -15,7 +15,11 @@ function processUrlCredentials() {
             
             // Faz login automaticamente usando o token
             setTimeout(() => {
-                handleTokenLogin();
+                try {
+                    handleTokenLogin();
+                } catch (error) {
+                    alert('Erro ao fazer login automático.');
+                }
             }, 500);
             
             // Remove o parâmetro da URL para segurança
@@ -24,29 +28,24 @@ function processUrlCredentials() {
             
             return true;
         } catch (error) {
-            console.error('Erro ao processar token da URL:', error);
-            showMessage(loginMessage, 'Link inválido ou expirado.', 'error');
+            alert('Link inválido ou expirado.');
         }
     }
     return false;
 }
 
-// Elementos DOM
-const loginSection = document.getElementById('login-section');
-const migrationSection = document.getElementById('migration-section');
-const clientLoginForm = document.getElementById('client-login-form');
-const clientMigrationForm = document.getElementById('client-migration-form');
-const loadingOverlay = document.getElementById('loading-overlay');
-const loadingMessage = document.querySelector('.loading-message');
-const loginMessage = document.getElementById('login-message');
-const migrationMessage = document.getElementById('migration-message');
-const btnClientLogout = document.getElementById('btn-client-logout');
-const newServerSelect = document.getElementById('new-server-select');
+// Elementos DOM (serão definidos no DOMContentLoaded)
+let loginSection, migrationSection, clientLoginForm, clientMigrationForm;
+let loadingOverlay, loadingMessage, loginMessage, migrationMessage;
+let migrationModal, confirmMigrationBtn, cancelMigrationBtn;
+let btnClientLogout, newServerSelect, clientUsername, clientPassword;
 
 // Elementos de exibição de informações
 const displayUsername = document.getElementById('display-username');
 const displayCurrentServer = document.getElementById('display-current-server');
 const displayPackage = document.getElementById('display-package');
+
+// Elementos do modal de confirmação (definidos no DOMContentLoaded)
 
 // Funções utilitárias
 function showLoading(message = 'Processando...') {
@@ -107,14 +106,21 @@ async function loadServers() {
             const data = await response.json();
             availableServers = data.servers || [];
             populateServerSelect();
+        } else {
+            throw new Error('Erro ao carregar servidores');
         }
     } catch (error) {
-        console.error('Erro ao carregar servidores:', error);
+        alert('Erro ao carregar servidores disponíveis.');
     }
 }
 
 // Função para popular o select de servidores
 function populateServerSelect() {
+    if (!newServerSelect) {
+        console.error('Elemento newServerSelect não encontrado!');
+        return;
+    }
+    
     newServerSelect.innerHTML = '<option value="">Selecione um servidor...</option>';
     
     availableServers.forEach(server => {
@@ -138,8 +144,8 @@ async function handleClientLogin(event) {
         password: formData.get('password')
     };
     
-    if (!loginData.username || !loginData.password) {
-        showMessage(loginMessage, 'Por favor, preencha todos os campos.', 'error');
+    if (!clientUsername || !clientPassword) {
+        alert('Por favor, preencha todos os campos.');
         return;
     }
     
@@ -157,10 +163,10 @@ async function handleClientLogin(event) {
             showClientInterface();
             await loadServers();
         } else {
-            showMessage(loginMessage, 'Falha na autenticação.', 'error');
+            alert('Falha na autenticação.');
         }
     } catch (error) {
-        showMessage(loginMessage, error.message || 'Erro ao fazer login.', 'error');
+        alert(error.message || 'Erro ao fazer login.');
     } finally {
         hideLoading();
     }
@@ -169,28 +175,32 @@ async function handleClientLogin(event) {
 // Função para fazer login usando token
 async function handleTokenLogin() {
     if (!clientToken) {
-        showMessage(loginMessage, 'Token não encontrado.', 'error');
+        alert('Token de acesso não encontrado.');
         return;
     }
     
-    showLoading('Verificando acesso...');
-    hideMessage(loginMessage);
+    showLoading('Fazendo login...');
     
     try {
-        const response = await apiRequest('/api/client/login', {
+        const response = await fetch('/api/client/login', {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ token: clientToken })
         });
         
-        if (response.success) {
-            clientInfo = response.client_info;
-            showClientInterface();
+        if (response.ok) {
+            const data = await response.json();
+            clientInfo = data.client_info;
             await loadServers();
+            showClientInterface();
         } else {
-            showMessage(loginMessage, 'Link inválido ou expirado.', 'error');
+            const errorData = await response.json();
+            alert(errorData.detail || 'Erro no login.');
         }
     } catch (error) {
-        showMessage(loginMessage, error.message || 'Erro ao acessar com o link.', 'error');
+        alert('Erro de conexão.');
     } finally {
         hideLoading();
     }
@@ -198,13 +208,26 @@ async function handleTokenLogin() {
 
 // Função para mostrar a interface do cliente
 function showClientInterface() {
-    loginSection.classList.add('hidden');
-    migrationSection.classList.remove('hidden');
+    if (loginSection) {
+        loginSection.classList.add('hidden');
+    }
+    
+    if (migrationSection) {
+        migrationSection.classList.remove('hidden');
+    }
     
     // Preencher informações do cliente
-    displayUsername.textContent = clientInfo.username;
-    displayCurrentServer.textContent = clientInfo.server_name || 'N/A';
-    displayPackage.textContent = clientInfo.package_name || 'N/A';
+    if (displayUsername && clientInfo) {
+        displayUsername.textContent = clientInfo.username;
+    }
+    
+    if (displayCurrentServer && clientInfo) {
+        displayCurrentServer.textContent = clientInfo.server_name || 'N/A';
+    }
+    
+    if (displayPackage && clientInfo) {
+        displayPackage.textContent = clientInfo.package_name || 'N/A';
+    }
     
     populateServerSelect();
 }
@@ -217,40 +240,37 @@ async function handleClientMigration(event) {
     const serverId = formData.get('server_id');
     
     if (!serverId) {
-        showMessage(migrationMessage, 'Por favor, selecione um servidor.', 'error');
+        alert('Por favor, selecione um servidor.');
         return;
     }
     
     const selectedServer = availableServers.find(s => s.id === serverId);
     const serverName = selectedServer ? selectedServer.name : 'servidor selecionado';
     
-    const confirmMigration = confirm(
-        `Tem certeza que deseja migrar para ${serverName}?\n\n` +
-        'Esta ação pode levar alguns minutos para ser concluída.'
-    );
-    
-    if (!confirmMigration) {
+    try {
+        // Solicitar confirmação para migração usando modal
+        await showConfirmationModal();
+        
+        // Só mostrar loading após confirmação
+        showLoading('Migrando servidor...');
+    } catch (error) {
         return;
     }
     
-    showLoading('Migrando servidor...');
-    hideMessage(migrationMessage);
-    
     try {
-        // Solicitar senha para confirmar migração
-        const password = prompt('Digite sua senha para confirmar a migração:');
-        if (!password) {
-            hideLoading();
-            return;
-        }
-        
         const response = await apiRequest(`/api/client/migrate?token=${encodeURIComponent(clientToken)}`, {
             method: 'POST',
-            body: JSON.stringify({ server_id: serverId, password: password })
+            body: JSON.stringify({ server_id: serverId })
         });
         
         if (response.success) {
-            showMessage(migrationMessage, response.message || 'Migração realizada com sucesso!', 'success');
+            const successMessage = response.message || 'Migração realizada com sucesso!';
+            alert(successMessage);
+            
+            // Mostrar dica adicional após 3 segundos
+            setTimeout(() => {
+                alert('💡 Dica: Reinicie a TV da tomada ou feche e abra o App para puxar as atualizações.');
+            }, 3000);
             
             // Atualizar informações do cliente
             clientInfo.server_id = serverId;
@@ -263,10 +283,10 @@ async function handleClientMigration(event) {
             // Resetar formulário
             clientMigrationForm.reset();
         } else {
-            showMessage(migrationMessage, 'Falha na migração.', 'error');
+            alert('Falha na migração.');
         }
     } catch (error) {
-        showMessage(migrationMessage, error.message || 'Erro ao migrar servidor.', 'error');
+        alert(error.message || 'Erro ao migrar servidor.');
     } finally {
         hideLoading();
     }
@@ -290,30 +310,7 @@ function handleClientLogout() {
     loginSection.classList.remove('hidden');
 }
 
-// Event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    // Login form
-    clientLoginForm.addEventListener('submit', handleClientLogin);
-    
-    // Migration form
-    clientMigrationForm.addEventListener('submit', handleClientMigration);
-    
-    // Logout button
-    btnClientLogout.addEventListener('click', handleClientLogout);
-    
-    // Limpar mensagens quando o usuário começar a digitar
-    document.getElementById('client-username').addEventListener('input', () => {
-        hideMessage(loginMessage);
-    });
-    
-    document.getElementById('client-password').addEventListener('input', () => {
-        hideMessage(loginMessage);
-    });
-    
-    newServerSelect.addEventListener('change', () => {
-        hideMessage(migrationMessage);
-    });
-});
+// Event listeners serão registrados no DOMContentLoaded principal
 
 // Função para lidar com erros globais
 window.addEventListener('error', function(event) {
@@ -327,8 +324,76 @@ window.addEventListener('unhandledrejection', function(event) {
     hideLoading();
 });
 
+// Função para mostrar modal de confirmação
+function showConfirmationModal() {
+    return new Promise((resolve, reject) => {
+        migrationModal.classList.add('show');
+        
+        const handleConfirm = () => {
+            cleanup();
+            resolve(true);
+        };
+        
+        const handleCancel = () => {
+            cleanup();
+            reject(new Error('Cancelado pelo usuário'));
+        };
+        
+        const handleKeyPress = (e) => {
+            if (e.key === 'Enter') {
+                handleConfirm();
+            } else if (e.key === 'Escape') {
+                handleCancel();
+            }
+        };
+        
+        const cleanup = () => {
+            migrationModal.classList.remove('show');
+            confirmMigrationBtn.removeEventListener('click', handleConfirm);
+            cancelMigrationBtn.removeEventListener('click', handleCancel);
+            document.removeEventListener('keydown', handleKeyPress);
+        };
+        
+        confirmMigrationBtn.addEventListener('click', handleConfirm);
+        cancelMigrationBtn.addEventListener('click', handleCancel);
+        document.addEventListener('keydown', handleKeyPress);
+    });
+}
+
 // Inicialização quando a página carregar
 document.addEventListener('DOMContentLoaded', function() {
+    // Define elementos DOM
+    loginSection = document.getElementById('login-section');
+    migrationSection = document.getElementById('migration-section');
+    clientLoginForm = document.getElementById('client-login-form');
+    clientMigrationForm = document.getElementById('client-migration-form');
+    loadingOverlay = document.getElementById('loading-overlay');
+    loadingMessage = document.querySelector('.loading-message');
+    loginMessage = document.getElementById('login-message');
+    migrationMessage = document.getElementById('migration-message');
+    migrationModal = document.getElementById('migration-modal');
+    confirmMigrationBtn = document.getElementById('confirm-migration-btn');
+    cancelMigrationBtn = document.getElementById('cancel-migration-btn');
+    btnClientLogout = document.getElementById('btn-client-logout');
+    newServerSelect = document.getElementById('new-server-select');
+    clientUsername = document.getElementById('client-username');
+    clientPassword = document.getElementById('client-password');
+    
+    // Registrar event listeners
+    if (clientLoginForm) {
+        clientLoginForm.addEventListener('submit', handleClientLogin);
+    }
+    
+    if (clientMigrationForm) {
+        clientMigrationForm.addEventListener('submit', handleClientMigration);
+    }
+    
+    if (btnClientLogout) {
+        btnClientLogout.addEventListener('click', handleClientLogout);
+    }
+    
+    // Event listeners para limpar mensagens foram removidos (usando alert agora)
+    
     // Processa credenciais da URL se existirem
     processUrlCredentials();
 });

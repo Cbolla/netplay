@@ -344,6 +344,132 @@ input[type="password"]:focus,
     display: none !important;
 }
 
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    max-width: 400px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    padding: 20px 20px 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.2rem;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.modal-body p {
+    margin: 0 0 15px;
+    color: #666;
+}
+
+.modal-footer {
+    padding: 10px 20px 20px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.modal-footer button {
+    min-width: 80px;
+}
+
+/* Modal de Confirmação de Migração */
+#migration-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+#migration-modal.show {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#migration-modal .modal-content {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    max-width: 400px;
+    width: 90%;
+}
+
+#migration-modal h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+}
+
+#migration-modal p {
+    margin: 0 0 15px 0;
+    color: #666;
+    font-size: 16px;
+}
+
+#migration-modal .modal-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+#migration-modal .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+#migration-modal .btn-primary {
+    background: #28a745;
+    color: white;
+}
+
+#migration-modal .btn-primary:hover {
+    background: #218838;
+}
+
+#migration-modal .btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+#migration-modal .btn-secondary:hover {
+    background: #545b62;
+}
+
 /* Responsividade */
 @media (max-width: 768px) {
     .app-container {

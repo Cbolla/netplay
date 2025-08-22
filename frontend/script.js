@@ -508,13 +508,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Função para carregar links gerados
     async function loadGeneratedLinks() {
         try {
+            console.log('Carregando links gerados...');
             const data = await apiRequest('/api/generated_links');
+            console.log('Resposta da API:', data);
             
             if (data.success && data.links && data.links.length > 0) {
+                console.log('Links encontrados:', data.links.length);
                 displayGeneratedLinks(data.links);
                 generatedLinksContainer.classList.remove('hidden');
                 noLinksMessage.classList.add('hidden');
             } else {
+                console.log('Nenhum link encontrado ou erro na resposta');
                 generatedLinksContainer.classList.add('hidden');
                 noLinksMessage.classList.remove('hidden');
             }

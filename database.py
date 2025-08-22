@@ -158,6 +158,42 @@ class Database:
             }
         return None
     
+    def get_client_by_credentials(self, username: str, password: str) -> Optional[Dict]:
+        """Busca um cliente pelas credenciais username/password"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT cl.client_username, cl.client_password, r.netplay_username, r.netplay_password, r.username, cl.link_token
+            FROM client_links cl
+            JOIN resellers r ON cl.reseller_id = r.id
+            WHERE cl.client_username = ? AND cl.client_password = ?
+        """, (username, password))
+        
+        result = cursor.fetchone()
+        
+        if result:
+            # Atualiza o último acesso
+            cursor.execute("""
+                UPDATE client_links
+                SET last_accessed = CURRENT_TIMESTAMP
+                WHERE client_username = ? AND client_password = ?
+            """, (username, password))
+            conn.commit()
+        
+        conn.close()
+        
+        if result:
+            return {
+                "client_username": result[0],
+                "client_password": result[1],
+                "reseller_netplay_username": result[2],
+                "reseller_netplay_password": result[3],
+                "reseller_username": result[4],
+                "link_token": result[5]
+            }
+        return None
+    
     def get_reseller_clients(self, reseller_id: int) -> List[Dict]:
         """Lista todos os clientes de um revendedor"""
         conn = sqlite3.connect(self.db_path)

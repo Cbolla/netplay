@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
@@ -52,9 +52,13 @@ class LoginRequest(BaseModel): username: str; password: str
 class CustomerInfo(BaseModel): id: str; username: str; package_name: str
 class BatchMigrateRequest(BaseModel): customers: list[CustomerInfo]; server_id: str; server_name: str
 class ClientLoginRequest(BaseModel): username: str; password: str
-class ClientMigrateRequest(BaseModel): server_id: str; password: str
+class ClientMigrateRequest(BaseModel): server_id: str; password: str = None
 class CreateClientLinkRequest(BaseModel): client_username: str; client_password: str
 class ClientTokenLoginRequest(BaseModel): token: str
+class ClientAuthRequest(BaseModel): 
+    token: str = None
+    username: str = None
+    password: str = None
 
 # (NOVO) Função para normalizar nomes de planos de forma mais inteligente
 def normalize_string(s: str) -> str:
@@ -73,6 +77,12 @@ def normalize_string(s: str) -> str:
 async def read_root():
     with open("frontend/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
+
+@app.get("/client.html")
+async def read_client():
+    with open("frontend/client.html", "r", encoding="utf-8") as file:
+        return HTMLResponse(content=file.read())
+
 
 @app.get("/client", response_class=HTMLResponse)
 async def client_page():
@@ -160,7 +170,8 @@ async def get_client_servers():
         admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
         admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
                                      headers=admin_headers, 
-                                     json={"username": NETPLAY_USERNAME, "password": NETPLAY_PASSWORD})
+                                     json={"username": NETPLAY_USERNAME, "password": NETPLAY_PASSWORD},
+                                     timeout=10)
         admin_response.raise_for_status()
         admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
         
@@ -174,7 +185,9 @@ async def get_client_servers():
         
         servers = []
         # Verificar se servers_data é uma lista ou tem uma estrutura diferente
-        if isinstance(servers_data, dict) and "servers" in servers_data:
+        if isinstance(servers_data, dict) and "data" in servers_data:
+            server_list = servers_data["data"]
+        elif isinstance(servers_data, dict) and "servers" in servers_data:
             server_list = servers_data["servers"]
         elif isinstance(servers_data, list):
             server_list = servers_data
@@ -187,13 +200,15 @@ async def get_client_servers():
                     "id": str(server.get("id", "unknown")),
                     "name": server.get("name", "Unknown Server")
                 })
-        
         return {"servers": servers}
     except requests.exceptions.ConnectionError as e:
+        print(f"Erro de conexão com a API da Netplay: {e}")
         raise HTTPException(status_code=500, detail="Erro de conexão com a API da Netplay. Verifique sua conexão com a internet.")
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail="Erro ao carregar servidores. Verifique suas credenciais da Netplay.")
+        print(f"Erro de requisição com a API da Netplay: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro de conexão com a API da Netplay: {str(e)}")
     except Exception as e:
+        print(f"Erro inesperado ao obter servidores: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno do servidor: {str(e)}")
 
 @app.get("/api/client/{client_id}")
@@ -275,7 +290,7 @@ async def get_generated_links():
         
         # Buscar todos os links gerados por este revendedor
         cursor.execute("""
-            SELECT id, client_username, link_token, created_at, last_access, is_active
+            SELECT id, client_username, link_token, created_at, last_accessed, is_active
             FROM client_links 
             WHERE reseller_id = ?
             ORDER BY created_at DESC
@@ -350,14 +365,27 @@ async def search_customer(account_number: str = None, server_id: str = None):
         raise HTTPException(status_code=500, detail=f"Erro ao pesquisar cliente: {e}")
 
 @app.post("/api/client/login")
-async def client_login(request: ClientTokenLoginRequest):
-    """Autentica um cliente usando token do link gerado pelo revendedor"""
+async def client_login(request: ClientAuthRequest):
+    """Autentica um cliente usando token do link gerado pelo revendedor ou credenciais diretas"""
     try:
-        # Busca o cliente pelo token
-        client_data = db.get_client_by_token(request.token)
+        # Verifica se é login por token
+        if request.token:
+            # Busca o cliente pelo token
+            client_data = db.get_client_by_token(request.token)
+            
+            if not client_data:
+                raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
         
-        if not client_data:
-            raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+        # Verifica se é login por credenciais diretas
+        elif request.username and request.password:
+            # Busca o cliente pelas credenciais na tabela client_links
+            client_data = db.get_client_by_credentials(request.username, request.password)
+            
+            if not client_data:
+                raise HTTPException(status_code=401, detail="Credenciais inválidas.")
+        
+        else:
+            raise HTTPException(status_code=400, detail="Forneça token ou credenciais (username e password).")
         
         # Usa as credenciais do revendedor para buscar informações do cliente na Netplay
         admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
@@ -408,7 +436,7 @@ async def client_login(request: ClientTokenLoginRequest):
                 "server_id": server_id,
                 "package_name": package_name
             },
-            "token": request.token  # Retorna o token para uso nas próximas requisições
+            "token": request.token if request.token else client_data.get("link_token")  # Retorna o token para uso nas próximas requisições
         }
     except HTTPException:
         raise
@@ -418,6 +446,7 @@ async def client_login(request: ClientTokenLoginRequest):
 @app.post("/api/client/migrate")
 async def client_migrate(request: ClientMigrateRequest, token: str):
     """Permite que um cliente migre seu próprio servidor usando credenciais do revendedor"""
+    global ALL_NETPLAY_PACKAGES
     try:
         # Busca o cliente pelo token
         client_data = db.get_client_by_token(token)
@@ -445,14 +474,15 @@ async def client_migrate(request: ClientMigrateRequest, token: str):
     
     try:
         # Primeiro, busca o cliente para obter suas informações
-        params = {"username": username}
+        client_username = client_data["client_username"]
+        params = {"username": client_username}
         response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
         response.raise_for_status()
         customers = response.json().get("data", [])
         
         client_found = None
         for customer in customers:
-            if customer.get("username") == username:
+            if customer.get("username") == client_username:
                 client_found = customer
                 break
         
@@ -465,15 +495,45 @@ async def client_migrate(request: ClientMigrateRequest, token: str):
         if not current_package_name:
             raise HTTPException(status_code=400, detail="Plano atual não identificado.")
         
+        # Garante que os pacotes estejam carregados
+        if not ALL_NETPLAY_PACKAGES:
+            headers_temp = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}"}
+            response = requests.get(f"{NETPLAY_API_BASE_URL}/servers", headers=headers_temp)
+            response.raise_for_status()
+            servers_data = response.json().get("data", [])
+            
+            packages_list = []
+            seen_ids = set()
+            for server in servers_data:
+                for pkg in server.get("packages", []):
+                    if pkg.get("id") not in seen_ids:
+                        pkg_info = {"id": pkg.get("id"), "name": pkg.get("name"), "server_id": server.get("id")}
+                        packages_list.append(pkg_info)
+                        seen_ids.add(pkg.get("id"))
+            ALL_NETPLAY_PACKAGES = packages_list
+        
         new_package_id = None
         normalized_current_package_name = normalize_string(current_package_name)
         
+        # Primeiro, tenta correspondência exata
         for pkg in ALL_NETPLAY_PACKAGES:
             if pkg.get("server_id") == request.server_id:
                 normalized_pkg_name = normalize_string(pkg.get("name", ""))
                 if normalized_pkg_name == normalized_current_package_name:
                     new_package_id = pkg.get("id")
                     break
+        
+        # Se não encontrou correspondência exata, tenta correspondência parcial
+        if not new_package_id:
+            # Busca por correspondência parcial baseada em características principais
+            for pkg in ALL_NETPLAY_PACKAGES:
+                if pkg.get("server_id") == request.server_id:
+                    normalized_pkg_name = normalize_string(pkg.get("name", ""))
+                    
+                    # Verifica se contém 'semadulto' (característica principal)
+                    if 'semadulto' in normalized_current_package_name and 'semadulto' in normalized_pkg_name:
+                        new_package_id = pkg.get("id")
+                        break
         
         if not new_package_id:
             raise HTTPException(status_code=400, detail=f"Plano '{current_package_name}' não encontrado no servidor de destino.")
