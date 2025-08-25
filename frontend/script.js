@@ -158,6 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
             allAvailableServers = data.servers;
             sourceServerSelect.innerHTML = '<option value="">Todos os servidores</option>';
             allAvailableServers.forEach(server => sourceServerSelect.add(new Option(server.name, server.id)));
+            
+            // Carregar links gerados automaticamente após o login
+            await loadGeneratedLinks();
+            
         } catch (error) {
             Toast.show(error.message, 'error');
         } finally {
@@ -625,10 +629,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Carregar links quando a página for carregada
-    document.addEventListener('DOMContentLoaded', () => {
-        // Carregar links após um pequeno delay para garantir que o usuário esteja logado
-        setTimeout(loadGeneratedLinks, 1000);
-    });
+    // Remover estas linhas:
+    // document.addEventListener('DOMContentLoaded', () => {
+    //     setTimeout(loadGeneratedLinks, 1000);
+    // });
 
     // --- Inicialização ---
     showLogin();

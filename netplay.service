@@ -1,0 +1,42 @@
+# Arquivo de serviço systemd para Netplay RPA
+# Copie este arquivo para /etc/systemd/system/netplay.service
+# Execute: sudo systemctl enable netplay && sudo systemctl start netplay
+
+[Unit]
+Description=Netplay RPA System
+After=network.target
+Requires=network.target
+
+[Service]
+Type=exec
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/netplay
+Environment="PATH=/opt/netplay/venv/bin"
+EnvironmentFile=/opt/netplay/.env
+ExecStart=/opt/netplay/venv/bin/gunicorn main:app -c gunicorn.conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=5
+
+# Limites de recursos
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netplay
+
+# Segurança
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/netplay
+ReadWritePaths=/var/log/netplay
+
+[Install]
+WantedBy=multi-user.target

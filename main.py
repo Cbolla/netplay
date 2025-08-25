@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 import asyncio
@@ -11,7 +12,20 @@ import re
 import sqlite3
 from database import db
 
-app = FastAPI()
+app = FastAPI(
+    title="Netplay RPA System",
+    description="Sistema de automação para migração de clientes Netplay",
+    version="1.0.0"
+)
+
+# Configurar CORS para permitir acesso externo
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Em produção, especifique seus domínios
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 
