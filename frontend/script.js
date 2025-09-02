@@ -107,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Estado da Aplicação ---
     let AUTH_TOKEN = null;
+    let CURRENT_RESELLER = null;
     let selectedCustomerIds = new Set();
     let allClientsData = [];
     let allAvailableServers = [];
@@ -135,6 +136,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(data.detail || 'Erro no login');
             
             AUTH_TOKEN = data.token;
+            
+            // Define CURRENT_RESELLER com os dados da resposta
+            CURRENT_RESELLER = {
+                id: data.reseller_id,
+                username: data.username,
+                token: data.token
+            };
+            
             Toast.show('Login bem-sucedido!', 'success');
             usernameDisplay.textContent = loginForm.username.value;
             show(document.getElementById('user-info'));
@@ -161,6 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Carregar links gerados automaticamente após o login
             await loadGeneratedLinks();
+            await loadResellerFixedLink();
             
         } catch (error) {
             Toast.show(error.message, 'error');
@@ -623,10 +633,55 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Função para carregar o link fixo do revendedor
+    async function loadResellerFixedLink() {
+        try {
+            console.log('loadResellerFixedLink chamada');
+            console.log('CURRENT_RESELLER:', CURRENT_RESELLER);
+            
+            const resellerFixedLinkInput = document.getElementById('reseller-fixed-link');
+            const copyResellerLinkBtn = document.getElementById('copy-reseller-link-btn');
+            
+            if (!resellerFixedLinkInput) {
+                console.error('Elemento reseller-fixed-link não encontrado');
+                return;
+            }
+            
+            if (CURRENT_RESELLER && CURRENT_RESELLER.id) {
+                const baseUrl = window.location.origin;
+                const fixedLink = `${baseUrl}/r${CURRENT_RESELLER.id}/client`;
+                
+                resellerFixedLinkInput.value = fixedLink;
+                copyResellerLinkBtn.disabled = false;
+                
+                console.log('Link fixo do revendedor carregado:', fixedLink);
+            } else {
+                console.log('CURRENT_RESELLER não definido ou sem ID');
+                resellerFixedLinkInput.placeholder = 'Erro: dados do revendedor não encontrados';
+            }
+        } catch (error) {
+            console.error('Erro ao carregar link fixo:', error);
+        }
+    }
+    
     // Event listener para o botão de atualizar links
     if (refreshLinksBtn) {
         refreshLinksBtn.addEventListener('click', loadGeneratedLinks);
     }
+    
+    // Event listener para copiar link fixo do revendedor
+    document.getElementById('copy-reseller-link-btn').addEventListener('click', async () => {
+        const resellerFixedLinkInput = document.getElementById('reseller-fixed-link');
+        try {
+            await navigator.clipboard.writeText(resellerFixedLinkInput.value);
+            Toast.show('Link fixo copiado para a área de transferência!', 'success');
+        } catch (error) {
+            // Fallback para navegadores mais antigos
+            resellerFixedLinkInput.select();
+            document.execCommand('copy');
+            Toast.show('Link fixo copiado!', 'success');
+        }
+    });
 
     // Carregar links quando a página for carregada
     // Remover estas linhas:

@@ -3,10 +3,34 @@ let clientInfo = null;
 let availableServers = [];
 let clientToken = null;
 
-// Função para processar credenciais da URL
+// Variável global para reseller_id
+let resellerId = null;
+
+// Função para processar credenciais da URL e detectar reseller_id
 function processUrlCredentials() {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
+    
+    // Detecta reseller_id do atributo data no body
+    const bodyElement = document.body;
+    if (bodyElement.hasAttribute('data-reseller-id')) {
+        resellerId = parseInt(bodyElement.getAttribute('data-reseller-id'));
+        const resellerName = bodyElement.getAttribute('data-reseller-name');
+        
+        // Atualiza o título da página para mostrar o revendedor
+        if (resellerName) {
+            document.title = `Cliente - ${resellerName} | Netplay RPA`;
+            
+            // Adiciona informação visual do revendedor
+            const header = document.querySelector('.card-header h2');
+            if (header) {
+                header.innerHTML = `<i class="fas fa-user"></i> Login - ${resellerName}`;
+            }
+        }
+        
+        console.log('Reseller ID detectado:', resellerId);
+        return true;
+    }
     
     if (token) {
         try {
@@ -144,9 +168,24 @@ async function handleClientLogin(event) {
         password: formData.get('password')
     };
     
-    if (!clientUsername || !clientPassword) {
-        alert('Por favor, preencha todos os campos.');
+    // Se há um token na URL, inclui no login para validar se o cliente pertence ao revendedor
+    if (clientToken) {
+        loginData.token = clientToken;
+    }
+    
+    // Se há um reseller_id, inclui no login
+    if (resellerId) {
+        loginData.reseller_id = resellerId;
+    }
+    
+    if (!loginData.username) {
+        alert('Por favor, digite o número de usuário.');
         return;
+    }
+    
+    // Se não há senha, remove do objeto
+    if (!loginData.password) {
+        delete loginData.password;
     }
     
     showLoading('Verificando credenciais...');
@@ -160,10 +199,22 @@ async function handleClientLogin(event) {
         
         if (response.success) {
             clientInfo = response.client_info;
+            
+            // Armazena o token, netplay_token ou reseller_id para uso na migração
+        if (response.netplay_token) {
+            clientInfo.netplay_token = response.netplay_token;
+        } else if (response.token) {
+            clientInfo.system_token = response.token;
+        }
+        
+        if (response.reseller_id) {
+            clientInfo.reseller_id = response.reseller_id;
+        }
+            
             showClientInterface();
             await loadServers();
         } else {
-            alert('Falha na autenticação.');
+            alert('Falha na autenticação. Verifique suas credenciais.');
         }
     } catch (error) {
         alert(error.message || 'Erro ao fazer login.');
@@ -258,9 +309,39 @@ async function handleClientMigration(event) {
     }
     
     try {
-        const response = await apiRequest(`/api/client/migrate?token=${encodeURIComponent(clientToken)}`, {
+        // Determina qual token usar para migração
+        let migrateUrl = '/api/client/migrate';
+        let migrateParams = new URLSearchParams();
+        
+        if (clientInfo.netplay_token) {
+            // Login direto com credenciais da Netplay
+            migrateParams.append('netplay_token', clientInfo.netplay_token);
+        } else if (clientInfo.system_token) {
+            // Login via link do revendedor
+            migrateParams.append('token', clientInfo.system_token);
+        } else if (clientToken) {
+            // Fallback para token da URL
+            migrateParams.append('token', clientToken);
+        }
+        
+        // Se há reseller_id, inclui nos parâmetros
+        if (clientInfo.reseller_id) {
+            migrateParams.append('reseller_id', clientInfo.reseller_id);
+        } else if (resellerId) {
+            migrateParams.append('reseller_id', resellerId);
+        }
+        
+        // Prepara o body da requisição
+        const requestBody = { server_id: serverId };
+        
+        // Se está usando reseller_id, inclui o username do cliente
+        if (clientInfo.reseller_id || resellerId) {
+            requestBody.client_username = clientInfo.username;
+        }
+        
+        const response = await apiRequest(`${migrateUrl}?${migrateParams.toString()}`, {
             method: 'POST',
-            body: JSON.stringify({ server_id: serverId })
+            body: JSON.stringify(requestBody)
         });
         
         if (response.success) {

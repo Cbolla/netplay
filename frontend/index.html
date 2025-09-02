@@ -96,10 +96,36 @@
                         </div>
                     </div>
 
+                    <!-- Nova seção para link fixo do revendedor -->
+                    <div id="reseller-link-section" class="section-divider">
+                        <div class="section-header">
+                            <h3><i class="fas fa-globe"></i> Link Fixo do Revendedor</h3>
+                        </div>
+                        <div class="reseller-link-info">
+                            <p><i class="fas fa-info-circle"></i> Este é o link fixo do seu revendedor. Qualquer cliente seu pode usar este link para fazer login apenas com o número de usuário.</p>
+                            <div class="link-display">
+                                <input type="text" id="reseller-fixed-link" readonly class="link-input" placeholder="Faça login para ver seu link..." />
+                                <button type="button" id="copy-reseller-link-btn" class="btn-copy" disabled>
+                                    <i class="fas fa-copy"></i> Copiar
+                                </button>
+                            </div>
+                            <div class="link-instructions">
+                                <p><strong>Como usar:</strong></p>
+                                <ul>
+                                    <li>📤 Envie este link para seus clientes</li>
+                                    <li>🔑 Clientes fazem login apenas com o número de usuário</li>
+                                    <li>✅ Sistema valida automaticamente se o cliente pertence a você</li>
+                                    <li>🚀 Cliente pode migrar servidores diretamente</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Nova seção para gerar links de clientes -->
                     <div id="client-link-section" class="section-divider">
                         <div class="section-header">
-                            <h3><i class="fas fa-link"></i> Gerar Link de Acesso para Cliente</h3>
+                            <h3><i class="fas fa-link"></i> Gerar Link Individual (Opcional)</h3>
+                            <small class="section-subtitle">Use o link fixo acima ao invés desta opção</small>
                         </div>
                         <form id="generate-client-link-form" class="search-form">
                             <div class="form-row">

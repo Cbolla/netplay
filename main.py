@@ -37,11 +37,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 # --- Variáveis de Configuração e Cabeçalhos ---
-NETPLAY_API_BASE_URL = "https://netplay.sigma.vin/api"
+NETPLAY_API_BASE_URL = "https://netplay.mplll.com/api"
 AUTH_TOKEN = None
 CURRENT_RESELLER = None
 ALL_NETPLAY_PACKAGES = []
-NETPLAY_HEADERS = {"accept": "application/json", "user-agent": "Mozilla/5.0", "origin": "https://netplay.sigma.vin", "referer": "https://netplay.sigma.vin/"}
+NETPLAY_HEADERS = {"accept": "application/json", "user-agent": "Mozilla/5.0", "origin": "https://netplay.mplll.com", "referer": "https://netplay.mplll.com/"}
 
 # Credenciais administrativas (configure com suas credenciais reais)
 # Você pode configurar através de variáveis de ambiente ou diretamente aqui
@@ -66,13 +66,56 @@ class LoginRequest(BaseModel): username: str; password: str
 class CustomerInfo(BaseModel): id: str; username: str; package_name: str
 class BatchMigrateRequest(BaseModel): customers: list[CustomerInfo]; server_id: str; server_name: str
 class ClientLoginRequest(BaseModel): username: str; password: str
-class ClientMigrateRequest(BaseModel): server_id: str; password: str = None
+class ClientMigrateRequest(BaseModel): server_id: str; password: str = None; client_username: str = None
 class CreateClientLinkRequest(BaseModel): client_username: str; client_password: str
 class ClientTokenLoginRequest(BaseModel): token: str
 class ClientAuthRequest(BaseModel): 
     token: str = None
     username: str = None
     password: str = None
+    reseller_id: int = None
+
+# --- Modelos para Painel Admin ---
+class AdminLoginRequest(BaseModel): username: str; password: str
+class BlockResellerRequest(BaseModel): reseller_ids: list[int]; reason: str = None
+class UnblockResellerRequest(BaseModel): reseller_id: int
+
+# Função para detectar URL base (ngrok ou localhost)
+async def get_base_url(request: Request) -> str:
+    """Detecta automaticamente se está rodando com ngrok ou localhost"""
+    try:
+        # Verifica se há ngrok rodando
+        import httpx
+        async with httpx.AsyncClient() as client:
+            try:
+                # Tenta acessar API do ngrok
+                response = await client.get("http://localhost:4040/api/tunnels", timeout=2.0)
+                if response.status_code == 200:
+                    tunnels = response.json().get("tunnels", [])
+                    # Procura por túnel HTTPS
+                    for tunnel in tunnels:
+                        if tunnel.get("proto") == "https":
+                            return tunnel.get("public_url", "http://localhost:8000")
+                    # Se não encontrou HTTPS, usa HTTP
+                    for tunnel in tunnels:
+                        if tunnel.get("proto") == "http":
+                            return tunnel.get("public_url", "http://localhost:8000")
+            except:
+                pass
+        
+        # Se não conseguiu detectar ngrok, usa host do request
+        host = request.headers.get("host", "localhost:8000")
+        
+        # Se o host contém ngrok, usa HTTPS
+        if "ngrok" in host:
+            return f"https://{host}"
+        
+        # Caso contrário, usa HTTP com localhost
+        return "http://localhost:8000"
+        
+    except Exception:
+        # Em caso de erro, retorna localhost
+        return "http://localhost:8000"
 
 # (NOVO) Função para normalizar nomes de planos de forma mais inteligente
 def normalize_string(s: str) -> str:
@@ -100,12 +143,40 @@ async def read_client():
 
 @app.get("/client", response_class=HTMLResponse)
 async def client_page():
-    """Página para clientes individuais"""
+    """Página do cliente"""
     with open("frontend/client.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
+@app.get("/r{reseller_id}/client", response_class=HTMLResponse)
+async def client_page_reseller(reseller_id: int):
+    """Página do cliente para um revendedor específico usando ID"""
+    # Verifica se o revendedor existe pelo ID
+    try:
+        conn = sqlite3.connect("netplay.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username FROM resellers WHERE id = ?", (reseller_id,))
+        reseller = cursor.fetchone()
+        conn.close()
+        
+        if not reseller:
+            raise HTTPException(status_code=404, detail="Revendedor não encontrado")
+        
+        # Lê o HTML do cliente e injeta o reseller_id
+        with open("frontend/client.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+            
+        # Injeta o reseller_id no HTML
+        html_content = html_content.replace(
+            '<body>',
+            f'<body data-reseller-id="{reseller[0]}" data-reseller-name="{reseller[1]}">')
+        
+        return HTMLResponse(content=html_content)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
 @app.post("/api/login")
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, req: Request):
     global AUTH_TOKEN, CURRENT_RESELLER
     
     # Primeiro, autentica na Netplay para verificar se as credenciais são válidas
@@ -132,16 +203,36 @@ async def login(request: LoginRequest):
                 raise HTTPException(status_code=500, detail="Erro ao criar revendedor no sistema.")
             
             # Busca novamente após criar
-        reseller = db.authenticate_reseller(request.username, request.password)
+            reseller = db.authenticate_reseller(request.username, request.password)
+        
+        # Verificar se o revendedor está bloqueado
+        if reseller and db.get_all_resellers():
+            reseller_info = next((r for r in db.get_all_resellers() if r["id"] == reseller["id"]), None)
+            if reseller_info and reseller_info["is_blocked"]:
+                db.log_activity(reseller["id"], "LOGIN_BLOCKED", f"Tentativa de login bloqueada: {reseller_info['blocked_reason']}", req.client.host)
+                raise HTTPException(status_code=403, detail=f"Conta bloqueada: {reseller_info['blocked_reason']}")
+        
+        # Criar sessão ativa
+        session_token = db.create_session(
+            reseller["id"], 
+            req.client.host, 
+            req.headers.get("user-agent")
+        )
+        
+        # Log da atividade
+        db.log_activity(reseller["id"], "LOGIN", "Login realizado com sucesso", req.client.host)
         
         # Armazena o revendedor autenticado
         CURRENT_RESELLER = reseller
         
         return {
             "token": token,
+            "session_token": session_token,
             "reseller_id": reseller["id"],
             "username": reseller["username"]
         }
+    except HTTPException:
+        raise
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=401, detail="Credenciais inválidas na Netplay.")
     except Exception as e:
@@ -247,7 +338,7 @@ async def get_client_data(client_id: str):
         return {"success": False, "error": str(e)}
 
 @app.post("/api/create_client_link")
-async def create_client_link(request: CreateClientLinkRequest):
+async def create_client_link(request: CreateClientLinkRequest, req: Request):
     """Cria um link de acesso para um cliente"""
     try:
         # Verifica se há um revendedor autenticado
@@ -263,8 +354,11 @@ async def create_client_link(request: CreateClientLinkRequest):
             client_password=request.client_password
         )
         
+        # Detecta a URL base (ngrok ou localhost)
+        base_url = await get_base_url(req)
+        
         # Gera a URL completa do link
-        link_url = f"http://localhost:8000/client?token={link_token}"
+        link_url = f"{base_url}/client?token={link_token}"
         
         return {
             "success": True,
@@ -276,21 +370,24 @@ async def create_client_link(request: CreateClientLinkRequest):
         raise HTTPException(status_code=500, detail=f"Erro ao criar link: {e}")
 
 @app.get("/api/reseller_clients")
-async def get_reseller_clients(reseller_id: int):
+async def get_reseller_clients(reseller_id: int, req: Request):
     """Lista todos os clientes de um revendedor"""
     try:
         clients = db.get_reseller_clients(reseller_id)
         
+        # Detecta a URL base
+        base_url = await get_base_url(req)
+        
         # Adiciona a URL completa para cada cliente
         for client in clients:
-            client["link_url"] = f"http://localhost:8000/client?token={client['link_token']}"
+            client["link_url"] = f"{base_url}/client?token={client['link_token']}"
         
         return {"clients": clients}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao buscar clientes: {e}")
 
 @app.get("/api/generated_links")
-async def get_generated_links():
+async def get_generated_links(req: Request):
     """Lista todos os links gerados pelo revendedor atual"""
     try:
         # Verifica se há um revendedor autenticado
@@ -298,6 +395,9 @@ async def get_generated_links():
             raise HTTPException(status_code=401, detail="Nenhum revendedor autenticado. Faça login primeiro.")
         
         reseller_id = CURRENT_RESELLER["id"]
+        
+        # Detecta a URL base
+        base_url = await get_base_url(req)
         
         conn = sqlite3.connect("netplay.db")
         cursor = conn.cursor()
@@ -316,7 +416,7 @@ async def get_generated_links():
                 "id": row[0],
                 "client_username": row[1],
                 "link_token": row[2],
-                "link_url": f"http://localhost:8000/client?token={row[2]}",
+                "link_url": f"{base_url}/client?token={row[2]}",
                 "created_at": row[3],
                 "last_access": row[4],
                 "is_active": bool(row[5])
@@ -362,6 +462,39 @@ async def delete_generated_link(link_id: int):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+@app.post("/api/test_credentials")
+async def test_credentials(request: ClientLoginRequest):
+    """Testa se as credenciais são válidas na Netplay (apenas para debug)"""
+    try:
+        client_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+        client_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                       headers=client_headers, 
+                                       json={
+                                           "username": request.username,
+                                           "password": request.password
+                                       })
+        
+        if client_response.status_code == 200:
+            client_token = client_response.json().get("token") or client_response.json().get("access_token")
+            if client_token:
+                return {
+                    "success": True,
+                    "message": "Credenciais válidas na Netplay",
+                    "token_exists": bool(client_token)
+                }
+        
+        return {
+            "success": False,
+            "message": f"Erro na autenticação: Status {client_response.status_code}",
+            "response": client_response.text[:200] if hasattr(client_response, 'text') else "N/A"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Erro na requisição: {str(e)}"
+        }
+
 @app.get("/api/search_customer")
 async def search_customer(account_number: str = None, server_id: str = None):
     if not AUTH_TOKEN: raise HTTPException(status_code=401, detail="Não autenticado.")
@@ -380,7 +513,7 @@ async def search_customer(account_number: str = None, server_id: str = None):
 
 @app.post("/api/client/login")
 async def client_login(request: ClientAuthRequest):
-    """Autentica um cliente usando token do link gerado pelo revendedor ou credenciais diretas"""
+    """Autentica um cliente usando token do link gerado pelo revendedor ou credenciais diretas da Netplay"""
     try:
         # Verifica se é login por token
         if request.token:
@@ -389,119 +522,366 @@ async def client_login(request: ClientAuthRequest):
             
             if not client_data:
                 raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+            
+            # Usa as credenciais do revendedor para buscar informações do cliente na Netplay
+            admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+            admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                         headers=admin_headers, 
+                                         json={
+                                             "username": client_data["reseller_netplay_username"],
+                                             "password": client_data["reseller_netplay_password"]
+                                         })
+            admin_response.raise_for_status()
+            admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
+            
+            if not admin_token:
+                raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
+            
+            # Busca o cliente usando token do revendedor
+            headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
+            params = {"username": client_data["client_username"]}
+            response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+            response.raise_for_status()
+            customers = response.json().get("data", [])
+            
+            # Verifica se o cliente existe
+            client_found = None
+            for customer in customers:
+                if customer.get("username") == client_data["client_username"]:
+                    client_found = customer
+                    break
+            
+            if not client_found:
+                raise HTTPException(status_code=404, detail="Cliente não encontrado na Netplay.")
+            
+            # Extrai informações do servidor e pacote
+            server_info = client_found.get("server", {})
+            server_name = server_info.get("name") if isinstance(server_info, dict) else server_info
+            server_id = server_info.get("id") if isinstance(server_info, dict) else None
+            
+            package_info = client_found.get("package", {})
+            package_name = package_info.get("name") if isinstance(package_info, dict) else package_info
+            
+            return {
+                "success": True,
+                "client_info": {
+                    "id": client_found.get("id"),
+                    "username": client_found.get("username"),
+                    "server_name": server_name,
+                    "server_id": server_id,
+                    "package_name": package_name
+                },
+                "token": request.token,
+                "auth_method": "token"
+            }
         
-        # Verifica se é login por credenciais diretas
-        elif request.username and request.password:
-            # Busca o cliente pelas credenciais na tabela client_links
+        # Verifica se é login por credenciais (apenas username ou username + password)
+        elif request.username:
+            # Se há um token ou reseller_id junto com credenciais, valida se o cliente pertence ao revendedor
+            if request.token or request.reseller_id:
+                # Busca informações do revendedor (por token ou reseller_id)
+                reseller_data = None
+                
+                if request.token:
+                    # Busca por token
+                    token_data = db.get_client_by_token(request.token)
+                    if not token_data:
+                        raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+                    reseller_data = {
+                        "netplay_username": token_data["reseller_netplay_username"],
+                        "netplay_password": token_data["reseller_netplay_password"]
+                    }
+                elif request.reseller_id:
+                    # Busca por reseller_id
+                    conn = sqlite3.connect("netplay.db")
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT netplay_username, netplay_password FROM resellers WHERE id = ?", (request.reseller_id,))
+                    reseller_row = cursor.fetchone()
+                    conn.close()
+                    
+                    if not reseller_row:
+                        raise HTTPException(status_code=404, detail="Revendedor não encontrado.")
+                    
+                    reseller_data = {
+                        "netplay_username": reseller_row[0],
+                        "netplay_password": reseller_row[1]
+                    }
+                
+                if not reseller_data:
+                    raise HTTPException(status_code=400, detail="Dados do revendedor não encontrados.")
+                
+                # Autentica com credenciais do revendedor para buscar clientes
+                admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+                admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                             headers=admin_headers, 
+                                             json={
+                                                 "username": reseller_data["netplay_username"],
+                                                 "password": reseller_data["netplay_password"]
+                                             })
+                admin_response.raise_for_status()
+                admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
+                
+                if not admin_token:
+                    raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
+                
+                # Busca o cliente nas listas do revendedor
+                headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
+                params = {"username": request.username}
+                response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+                response.raise_for_status()
+                customers = response.json().get("data", [])
+                
+                # Verifica se o cliente existe na lista do revendedor
+                client_found = None
+                for customer in customers:
+                    if customer.get("username") == request.username:
+                        client_found = customer
+                        break
+                
+                if not client_found:
+                    raise HTTPException(status_code=403, detail="Cliente não encontrado na lista deste revendedor.")
+                
+                # Cliente encontrado na lista do revendedor - login apenas com username
+                server_info = client_found.get("server", {})
+                server_name = server_info.get("name") if isinstance(server_info, dict) else server_info
+                server_id = server_info.get("id") if isinstance(server_info, dict) else None
+                
+                package_info = client_found.get("package", {})
+                package_name = package_info.get("name") if isinstance(package_info, dict) else package_info
+                
+                return {
+                    "success": True,
+                    "client_info": {
+                        "id": client_found.get("id"),
+                        "username": client_found.get("username"),
+                        "server_name": server_name,
+                        "server_id": server_id,
+                        "package_name": package_name
+                    },
+                    "system_token": request.token,
+                    "reseller_id": request.reseller_id,
+                    "auth_method": "username_only_reseller" if request.reseller_id else "username_only"
+                }
+            
+            else:
+                 # Login direto sem token - busca usando credenciais de admin
+                 admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+                 admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                              headers=admin_headers, 
+                                              json={
+                                                  "username": NETPLAY_USERNAME,
+                                                  "password": NETPLAY_PASSWORD
+                                              })
+                 admin_response.raise_for_status()
+                 admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
+                 
+                 if not admin_token:
+                     raise HTTPException(status_code=500, detail="Erro de autenticação com administrador.")
+                 
+                 # Busca o cliente usando credenciais de admin
+                 headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
+                 params = {"username": request.username}
+                 response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+                 response.raise_for_status()
+                 customers = response.json().get("data", [])
+                 
+                 # Verifica se o cliente existe
+                 client_found = None
+                 for customer in customers:
+                     if customer.get("username") == request.username:
+                         client_found = customer
+                         break
+                 
+                 if not client_found:
+                     raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+                 
+                 # Cliente encontrado - login apenas com username
+                 server_info = client_found.get("server", {})
+                 server_name = server_info.get("name") if isinstance(server_info, dict) else server_info
+                 server_id = server_info.get("id") if isinstance(server_info, dict) else None
+                 
+                 package_info = client_found.get("package", {})
+                 package_name = package_info.get("name") if isinstance(package_info, dict) else package_info
+                 
+                 return {
+                     "success": True,
+                     "client_info": {
+                         "id": client_found.get("id"),
+                         "username": client_found.get("username"),
+                         "server_name": server_name,
+                         "server_id": server_id,
+                         "package_name": package_name
+                     },
+                     "auth_method": "username_only_admin"
+                 }
+            
+            # Se não conseguiu autenticar diretamente, tenta buscar nas credenciais salvas
             client_data = db.get_client_by_credentials(request.username, request.password)
             
             if not client_data:
-                raise HTTPException(status_code=401, detail="Credenciais inválidas.")
+                raise HTTPException(status_code=401, detail="Credenciais inválidas. Verifique seu usuário e senha da Netplay.")
+            
+            # Usa as credenciais do revendedor para buscar informações do cliente
+            admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+            admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                         headers=admin_headers, 
+                                         json={
+                                             "username": client_data["reseller_netplay_username"],
+                                             "password": client_data["reseller_netplay_password"]
+                                         })
+            admin_response.raise_for_status()
+            admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
+            
+            if not admin_token:
+                raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
+            
+            # Busca o cliente usando token do revendedor
+            headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
+            params = {"username": client_data["client_username"]}
+            response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+            response.raise_for_status()
+            customers = response.json().get("data", [])
+            
+            # Verifica se o cliente existe
+            client_found = None
+            for customer in customers:
+                if customer.get("username") == client_data["client_username"]:
+                    client_found = customer
+                    break
+            
+            if not client_found:
+                raise HTTPException(status_code=404, detail="Cliente não encontrado na Netplay.")
+            
+            # Extrai informações do servidor e pacote
+            server_info = client_found.get("server", {})
+            server_name = server_info.get("name") if isinstance(server_info, dict) else server_info
+            server_id = server_info.get("id") if isinstance(server_info, dict) else None
+            
+            package_info = client_found.get("package", {})
+            package_name = package_info.get("name") if isinstance(package_info, dict) else package_info
+            
+            return {
+                "success": True,
+                "client_info": {
+                    "id": client_found.get("id"),
+                    "username": client_found.get("username"),
+                    "server_name": server_name,
+                    "server_id": server_id,
+                    "package_name": package_name
+                },
+                "token": client_data.get("link_token"),
+                "auth_method": "saved_credentials"
+            }
         
         else:
             raise HTTPException(status_code=400, detail="Forneça token ou credenciais (username e password).")
-        
-        # Usa as credenciais do revendedor para buscar informações do cliente na Netplay
-        admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
-        admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
-                                     headers=admin_headers, 
-                                     json={
-                                         "username": client_data["reseller_netplay_username"],
-                                         "password": client_data["reseller_netplay_password"]
-                                     })
-        admin_response.raise_for_status()
-        admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
-        
-        if not admin_token:
-            raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
-        
-        # Busca o cliente usando token do revendedor
-        headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
-        params = {"username": client_data["client_username"]}
-        response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
-        response.raise_for_status()
-        customers = response.json().get("data", [])
-        
-        # Verifica se o cliente existe
-        client_found = None
-        for customer in customers:
-            if customer.get("username") == client_data["client_username"]:
-                client_found = customer
-                break
-        
-        if not client_found:
-            raise HTTPException(status_code=404, detail="Cliente não encontrado na Netplay.")
-        
-        # Extrai informações do servidor de forma segura
-        server_info = client_found.get("server", {})
-        server_name = server_info.get("name") if isinstance(server_info, dict) else server_info
-        server_id = server_info.get("id") if isinstance(server_info, dict) else None
-        
-        # Extrai informações do pacote de forma segura
-        package_info = client_found.get("package", {})
-        package_name = package_info.get("name") if isinstance(package_info, dict) else package_info
-        
-        return {
-            "success": True,
-            "client_info": {
-                "id": client_found.get("id"),
-                "username": client_found.get("username"),
-                "server_name": server_name,
-                "server_id": server_id,
-                "package_name": package_name
-            },
-            "token": request.token if request.token else client_data.get("link_token")  # Retorna o token para uso nas próximas requisições
-        }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na autenticação: {e}")
 
 @app.post("/api/client/migrate")
-async def client_migrate(request: ClientMigrateRequest, token: str):
-    """Permite que um cliente migre seu próprio servidor usando credenciais do revendedor"""
+async def client_migrate(request: ClientMigrateRequest, token: str = None, netplay_token: str = None, reseller_id: int = None):
+    """Permite que um cliente migre seu próprio servidor"""
     global ALL_NETPLAY_PACKAGES
+    
+    admin_token = None
+    client_username = None
+    
     try:
-        # Busca o cliente pelo token
-        client_data = db.get_client_by_token(token)
-        
-        if not client_data:
-            raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
-        
-        # Usa as credenciais do revendedor para realizar a migração
-        admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
-        admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
-                                     headers=admin_headers, 
-                                     json={
-                                         "username": client_data["reseller_netplay_username"],
-                                         "password": client_data["reseller_netplay_password"]
-                                     })
-        admin_response.raise_for_status()
-        admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
-        
-        if not admin_token:
-            raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
+        # Verifica se é um token direto da Netplay
+        if netplay_token:
+            # Usa o token direto da Netplay para migração
+            admin_token = netplay_token
+            
+            # Busca informações do perfil do cliente
+            headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
+            profile_response = requests.get(f"{NETPLAY_API_BASE_URL}/profile", headers=headers)
+            profile_response.raise_for_status()
+            profile_data = profile_response.json()
+            client_username = profile_data.get("username")
+            
+        elif token or reseller_id:
+            # Busca credenciais do revendedor (por token ou reseller_id)
+            reseller_data = None
+            
+            if token:
+                # Busca o cliente pelo token do sistema
+                client_data = db.get_client_by_token(token)
+                
+                if not client_data:
+                    raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+                
+                client_username = client_data["client_username"]
+                reseller_data = {
+                    "netplay_username": client_data["reseller_netplay_username"],
+                    "netplay_password": client_data["reseller_netplay_password"]
+                }
+            elif reseller_id:
+                # Busca credenciais do revendedor pelo ID
+                conn = sqlite3.connect("netplay.db")
+                cursor = conn.cursor()
+                cursor.execute("SELECT netplay_username, netplay_password FROM resellers WHERE id = ?", (reseller_id,))
+                reseller_row = cursor.fetchone()
+                conn.close()
+                
+                if not reseller_row:
+                    raise HTTPException(status_code=404, detail="Revendedor não encontrado.")
+                
+                reseller_data = {
+                    "netplay_username": reseller_row[0],
+                    "netplay_password": reseller_row[1]
+                }
+                
+                # Para reseller_id, usa o client_username do request
+                if request.client_username:
+                    client_username = request.client_username
+                else:
+                    raise HTTPException(status_code=400, detail="Username do cliente é obrigatório para migração via reseller_id.")
+            
+            # Usa as credenciais do revendedor para realizar a migração
+            admin_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+            admin_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                         headers=admin_headers, 
+                                         json={
+                                             "username": reseller_data["netplay_username"],
+                                             "password": reseller_data["netplay_password"]
+                                         })
+            admin_response.raise_for_status()
+            admin_token = admin_response.json().get("token") or admin_response.json().get("access_token")
+            
+            if not admin_token:
+                raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
+        else:
+            raise HTTPException(status_code=400, detail="Forneça token do sistema ou netplay_token.")
+            
     except requests.exceptions.RequestException:
-        raise HTTPException(status_code=500, detail="Erro de autenticação com revendedor.")
+        raise HTTPException(status_code=500, detail="Erro de autenticação.")
     
     headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
     
     try:
         # Primeiro, busca o cliente para obter suas informações
-        client_username = client_data["client_username"]
-        params = {"username": client_username}
-        response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
-        response.raise_for_status()
-        customers = response.json().get("data", [])
-        
-        client_found = None
-        for customer in customers:
-            if customer.get("username") == client_username:
-                client_found = customer
-                break
-        
-        if not client_found:
-            raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+        if netplay_token:
+            # Para token direto da Netplay, busca o perfil
+            response = requests.get(f"{NETPLAY_API_BASE_URL}/profile", headers=headers)
+            response.raise_for_status()
+            client_found = response.json()
+        else:
+            # Para token do sistema, busca na lista de clientes
+            params = {"username": client_username}
+            response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+            response.raise_for_status()
+            customers = response.json().get("data", [])
+            
+            client_found = None
+            for customer in customers:
+                if customer.get("username") == client_username:
+                    client_found = customer
+                    break
+            
+            if not client_found:
+                raise HTTPException(status_code=404, detail="Cliente não encontrado.")
         
         # Busca o plano equivalente no servidor de destino
         package_info = client_found.get("package", {})
@@ -576,6 +956,158 @@ async def batch_migrar_clientes(request: BatchMigrateRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"message": "Processo de migração concluído.", "results": results}
+
+# === ROTAS DO PAINEL ADMINISTRATIVO ===
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel():
+    """Página do painel administrativo"""
+    with open("frontend/admin.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+@app.post("/api/admin/login")
+async def admin_login(request: AdminLoginRequest, req: Request):
+    """Login do administrador"""
+    try:
+        if db.authenticate_admin(request.username, request.password):
+            # Log da atividade
+            db.log_activity(None, "ADMIN_LOGIN", "Administrador fez login", req.client.host)
+            
+            return {
+                "success": True,
+                "message": "Login administrativo realizado com sucesso",
+                "is_admin": True
+            }
+        else:
+            # Log da tentativa de login falhada
+            db.log_activity(None, "ADMIN_LOGIN_FAILED", f"Tentativa de login admin falhada: {request.username}", req.client.host)
+            raise HTTPException(status_code=401, detail="Credenciais administrativas inválidas")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro no login administrativo: {e}")
+
+@app.get("/api/admin/stats")
+async def get_admin_stats():
+    """Obtém estatísticas gerais do sistema"""
+    try:
+        stats = db.get_admin_stats()
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {e}")
+
+@app.get("/api/admin/resellers")
+async def get_all_resellers():
+    """Lista todos os revendedores para o painel admin"""
+    try:
+        resellers = db.get_all_resellers()
+        return {"success": True, "resellers": resellers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter revendedores: {e}")
+
+@app.post("/api/admin/block")
+async def block_resellers(request: BlockResellerRequest, req: Request):
+    """Bloqueia um ou múltiplos revendedores"""
+    try:
+        if len(request.reseller_ids) == 1:
+            success = db.block_reseller(request.reseller_ids[0], request.reason)
+            if success:
+                db.log_activity(None, "ADMIN_BLOCK", f"Admin bloqueou revendedor ID {request.reseller_ids[0]}: {request.reason}", req.client.host)
+                return {"success": True, "message": "Revendedor bloqueado com sucesso"}
+            else:
+                return {"success": False, "message": "Erro ao bloquear revendedor"}
+        else:
+            blocked_count = db.block_multiple_resellers(request.reseller_ids, request.reason)
+            db.log_activity(None, "ADMIN_BLOCK_MULTIPLE", f"Admin bloqueou {blocked_count} revendedores: {request.reason}", req.client.host)
+            return {
+                "success": True, 
+                "message": f"{blocked_count} revendedores bloqueados com sucesso",
+                "blocked_count": blocked_count
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao bloquear revendedores: {e}")
+
+@app.post("/api/admin/unblock")
+async def unblock_reseller(request: UnblockResellerRequest, req: Request):
+    """Desbloqueia um revendedor"""
+    try:
+        success = db.unblock_reseller(request.reseller_id)
+        if success:
+            db.log_activity(None, "ADMIN_UNBLOCK", f"Admin desbloqueou revendedor ID {request.reseller_id}", req.client.host)
+            return {"success": True, "message": "Revendedor desbloqueado com sucesso"}
+        else:
+            return {"success": False, "message": "Erro ao desbloquear revendedor"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao desbloquear revendedor: {e}")
+
+@app.get("/api/admin/logs")
+async def get_activity_logs(limit: int = 100):
+    """Obtém logs de atividade recentes"""
+    try:
+        logs = db.get_activity_logs(limit)
+        return {"success": True, "logs": logs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter logs: {e}")
+
+@app.get("/api/admin/reseller/{reseller_id}/customers")
+async def get_reseller_customers_admin(reseller_id: int):
+    """Obtém clientes de um revendedor específico (admin)"""
+    try:
+        # Buscar revendedor
+        resellers = db.get_all_resellers()
+        reseller = next((r for r in resellers if r["id"] == reseller_id), None)
+        
+        if not reseller:
+            raise HTTPException(status_code=404, detail="Revendedor não encontrado")
+        
+        # Buscar clientes na API da Netplay usando credenciais do revendedor
+        headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+        
+        # Buscar credenciais completas do revendedor
+        reseller_full = db.authenticate_reseller(reseller["username"], "temp")
+        if not reseller_full:
+            # Buscar diretamente do banco
+            conn = sqlite3.connect("netplay.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT netplay_password FROM resellers WHERE id = ?", (reseller_id,))
+            result = cursor.fetchone()
+            conn.close()
+            netplay_password = result[0] if result else None
+        else:
+            netplay_password = reseller_full.get("netplay_password")
+        
+        if not netplay_password:
+            return {"success": False, "message": "Credenciais do revendedor não encontradas"}
+        
+        # Fazer login na Netplay com credenciais do revendedor
+        login_response = requests.post(
+            f"{NETPLAY_API_BASE_URL}/auth/login", 
+            headers=headers, 
+            json={
+                "username": reseller["netplay_username"], 
+                "password": netplay_password
+            }
+        )
+        
+        if login_response.status_code == 200:
+            token = login_response.json().get("token")
+            if token:
+                # Buscar clientes
+                customers_headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {token}"}
+                customers_response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=customers_headers)
+                
+                if customers_response.status_code == 200:
+                    customers = customers_response.json().get("data", [])
+                    
+                    # Atualizar cache no banco
+                    db.update_reseller_customers(reseller_id, customers)
+                    
+                    return {"success": True, "customers": customers, "total": len(customers)}
+        
+        return {"success": False, "message": "Erro ao obter clientes do revendedor"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter clientes: {e}")
 
 # --- Funções Auxiliares ---
 async def process_customer_migration(customer: CustomerInfo, request: BatchMigrateRequest, client: httpx.AsyncClient):
