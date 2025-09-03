@@ -17,15 +17,13 @@ function processUrlCredentials() {
         resellerId = parseInt(bodyElement.getAttribute('data-reseller-id'));
         const resellerName = bodyElement.getAttribute('data-reseller-name');
         
-        // Atualiza o título da página para mostrar o revendedor
-        if (resellerName) {
-            document.title = `Cliente - ${resellerName} | Netplay RPA`;
-            
-            // Adiciona informação visual do revendedor
-            const header = document.querySelector('.card-header h2');
-            if (header) {
-                header.innerHTML = `<i class="fas fa-user"></i> Login - ${resellerName}`;
-            }
+        // Manter título fixo
+        document.title = 'Login IPTV | Netplay RPA';
+        
+        // Manter cabeçalho fixo
+        const header = document.querySelector('.card-header h2');
+        if (header) {
+            header.innerHTML = `<i class="fas fa-tv"></i> Login IPTV`;
         }
         
         console.log('Reseller ID detectado:', resellerId);
@@ -164,8 +162,7 @@ async function handleClientLogin(event) {
     
     const formData = new FormData(clientLoginForm);
     const loginData = {
-        username: formData.get('username'),
-        password: formData.get('password')
+        username: formData.get('username')
     };
     
     // Se há um token na URL, inclui no login para validar se o cliente pertence ao revendedor
