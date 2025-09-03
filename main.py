@@ -10,6 +10,8 @@ import httpx
 import unicodedata
 import re
 import sqlite3
+import os
+from dotenv import load_dotenv
 from database import db
 
 app = FastAPI(
@@ -19,11 +21,15 @@ app = FastAPI(
 )
 
 # Configurar CORS para permitir acesso externo
+# Configurações de CORS para produção
+cors_origins = os.getenv("CORS_ORIGINS", "*")
+allowed_origins = cors_origins.split(",") if cors_origins != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Em produção, especifique seus domínios
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -45,9 +51,6 @@ NETPLAY_HEADERS = {"accept": "application/json", "user-agent": "Mozilla/5.0", "o
 
 # Credenciais administrativas (configure com suas credenciais reais)
 # Você pode configurar através de variáveis de ambiente ou diretamente aqui
-import os
-from dotenv import load_dotenv
-
 # Carrega variáveis do arquivo .env se existir
 load_dotenv()
 
@@ -1140,3 +1143,34 @@ async def process_customer_migration(customer: CustomerInfo, request: BatchMigra
     except Exception as e:
         result["migration_status"] = f"Erro: {e}"
     return result
+
+# Configurações de produção
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Configurações do servidor
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    debug = os.getenv("DEBUG", "true").lower() == "true"
+    environment = os.getenv("ENVIRONMENT", "development")
+    
+    if environment == "production":
+        # Configurações para produção
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=port,
+            reload=False,
+            access_log=True,
+            log_level="info"
+        )
+    else:
+        # Configurações para desenvolvimento
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=port,
+            reload=True,
+            access_log=True,
+            log_level="debug" if debug else "info"
+        )
