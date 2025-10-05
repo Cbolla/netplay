@@ -199,6 +199,7 @@ async def login(request: LoginRequest, req: Request):
             success = db.create_reseller(
                 username=request.username,
                 password=request.password,
+                email=request.username,  # Usando username como email
                 netplay_username=request.username,
                 netplay_password=request.password
             )
@@ -216,11 +217,7 @@ async def login(request: LoginRequest, req: Request):
                 raise HTTPException(status_code=403, detail=f"Conta bloqueada: {reseller_info['blocked_reason']}")
         
         # Criar sessão ativa
-        session_token = db.create_session(
-            reseller["id"], 
-            req.client.host, 
-            req.headers.get("user-agent")
-        )
+        session_token = db.create_session(reseller["id"])
         
         # Log da atividade
         db.log_activity(reseller["id"], "LOGIN", "Login realizado com sucesso", req.client.host)
@@ -236,8 +233,13 @@ async def login(request: LoginRequest, req: Request):
         }
     except HTTPException:
         raise
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 422:
+            raise HTTPException(status_code=401, detail="Credenciais inválidas na Netplay.")
+        else:
+            raise HTTPException(status_code=500, detail=f"Erro na API da Netplay: {e.response.status_code}")
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas na Netplay.")
+        raise HTTPException(status_code=500, detail="Erro de conexão com a Netplay.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro no login: {e}")
 
@@ -309,6 +311,11 @@ async def get_client_servers():
                     "name": server.get("name", "Unknown Server")
                 })
         return {"servers": servers}
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 422:
+            raise HTTPException(status_code=401, detail="Credenciais administrativas inválidas na Netplay.")
+        else:
+            raise HTTPException(status_code=500, detail=f"Erro na API da Netplay: {e.response.status_code}")
     except requests.exceptions.ConnectionError as e:
         print(f"Erro de conexão com a API da Netplay: {e}")
         raise HTTPException(status_code=500, detail="Erro de conexão com a API da Netplay. Verifique sua conexão com a internet.")
@@ -1113,6 +1120,20 @@ async def get_reseller_customers_admin(reseller_id: int):
         raise HTTPException(status_code=500, detail=f"Erro ao obter clientes: {e}")
 
 # --- Funções Auxiliares ---
+def handle_netplay_api_error(e):
+    """Padroniza o tratamento de erros da API da Netplay"""
+    if isinstance(e, requests.exceptions.HTTPError):
+        if e.response.status_code == 422:
+            raise HTTPException(status_code=401, detail="Credenciais inválidas na Netplay.")
+        else:
+            raise HTTPException(status_code=500, detail=f"Erro na API da Netplay: {e.response.status_code}")
+    elif isinstance(e, requests.exceptions.ConnectionError):
+        raise HTTPException(status_code=500, detail="Erro de conexão com a API da Netplay. Verifique sua conexão com a internet.")
+    elif isinstance(e, requests.exceptions.RequestException):
+        raise HTTPException(status_code=500, detail="Erro de conexão com a Netplay.")
+    else:
+        raise HTTPException(status_code=500, detail=f"Erro inesperado: {str(e)}")
+
 async def process_customer_migration(customer: CustomerInfo, request: BatchMigrateRequest, client: httpx.AsyncClient):
     result = {"username": customer.username, "migration_status": "Pendente"}
     headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}", "content-type": "application/json"}

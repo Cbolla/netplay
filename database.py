@@ -22,12 +22,25 @@ class Database:
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 email TEXT,
+                netplay_username TEXT,
+                netplay_password TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_blocked BOOLEAN DEFAULT FALSE,
                 blocked_reason TEXT,
                 customers_data TEXT
             )
         ''')
+        
+        # Adicionar colunas se não existirem (para bancos existentes)
+        try:
+            cursor.execute('ALTER TABLE resellers ADD COLUMN netplay_username TEXT')
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
+        
+        try:
+            cursor.execute('ALTER TABLE resellers ADD COLUMN netplay_password TEXT')
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
         
         # Tabela de sessões
         cursor.execute('''
@@ -76,7 +89,7 @@ class Database:
         
         password_hash = hashlib.sha256(password.encode()).hexdigest()
         cursor.execute(
-            "SELECT id, username, email, is_blocked, blocked_reason FROM resellers WHERE username = ? AND password_hash = ?",
+            "SELECT id, username, email, is_blocked, blocked_reason, netplay_username, netplay_password FROM resellers WHERE username = ? AND password_hash = ?",
             (username, password_hash)
         )
         
@@ -89,11 +102,13 @@ class Database:
                 "username": result[1],
                 "email": result[2],
                 "is_blocked": bool(result[3]),
-                "blocked_reason": result[4]
+                "blocked_reason": result[4],
+                "netplay_username": result[5],
+                "netplay_password": result[6]
             }
         return None
     
-    def create_reseller(self, username, password, email=None):
+    def create_reseller(self, username, password, email=None, netplay_username=None, netplay_password=None):
         """Cria um novo revendedor"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -102,8 +117,8 @@ class Database:
         
         try:
             cursor.execute(
-                "INSERT INTO resellers (username, password_hash, email) VALUES (?, ?, ?)",
-                (username, password_hash, email)
+                "INSERT INTO resellers (username, password_hash, email, netplay_username, netplay_password) VALUES (?, ?, ?, ?, ?)",
+                (username, password_hash, email, netplay_username, netplay_password)
             )
             conn.commit()
             return True
