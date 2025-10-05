@@ -48,14 +48,11 @@ timeout /t 3 /nobreak >nul
 
 REM Inicia o tunnel baseado na configuração
 if "%MODO_TUNNEL%"=="NOMEADO" (
-    echo 🌍 Global: Tentando usar tunnel nomeado '%TUNNEL_NAME%'...
-    echo ⚠️  AVISO: Tunnel nomeado requer configuração avançada!
-    echo 💡 Se der erro, use CONFIGURAR-CONTA.bat opção 1
+    echo 🌍 Global: Usando tunnel fixo '%TUNNEL_NAME%'...
     if not "%TUNNEL_HOSTNAME%"=="" (
         echo 🔗 URL:    https://%TUNNEL_HOSTNAME%
     )
-    echo 🔄 Tentando tunnel temporário como fallback...
-    cloudflared.exe tunnel --url http://localhost:8000 --no-autoupdate
+    cloudflared.exe tunnel --config config.yml run
 ) else (
     echo 🌍 Global: Criando tunnel temporário...
     cloudflared.exe tunnel --url http://localhost:8000 --no-autoupdate
