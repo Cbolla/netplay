@@ -1,0 +1,7 @@
+tunnel: 1aa4342a-96e7-4db0-88cd-164f5b5fc45f
+credentials-file: C:\Users\XEON\.cloudflared\1aa4342a-96e7-4db0-88cd-164f5b5fc45f.json
+
+ingress:
+  - hostname: servidormigrarcliente.io
+    service: http://localhost:8000
+  - service: http_status:404

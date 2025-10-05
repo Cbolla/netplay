@@ -23,12 +23,12 @@ if not exist "cloudflared.exe" (
     echo.
 )
 
-REM Executa o tunnel
+REM Executa o tunnel fixo
 echo [INFO] Conectando ao Cloudflare...
-echo [INFO] Link publico sera exibido abaixo:
+echo [INFO] Usando seu dominio fixo: https://servidormigrarcliente.io
 echo.
 echo ========================================
-.\cloudflared.exe tunnel --url http://localhost:8000
+.\cloudflared.exe tunnel --config config.yml run
 
 echo.
 echo [INFO] Tunnel encerrado.

@@ -1,0 +1,3 @@
+MODO_TUNNEL=TEMPORARIO 
+TUNNEL_NAME=meu-netplay-tunnel 
+TUNNEL_HOSTNAME=netplay.seudominio.com 
