@@ -901,7 +901,27 @@ async def client_migrate(request: ClientMigrateRequest, token: str = None, netpl
         
         # Garante que os pacotes estejam carregados
         if not ALL_NETPLAY_PACKAGES:
-            headers_temp = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}"}
+            # Usa o token do cliente autenticado ou obtém um novo token usando as credenciais do revendedor
+            token_to_use = None
+            if "authorization" in headers:
+                token_to_use = headers["authorization"].replace("Bearer ", "")
+            elif reseller_id:
+                # Obtém as credenciais do revendedor do banco de dados
+                reseller_data = db.get_reseller_by_id(reseller_id)
+                if reseller_data and reseller_data.get("netplay_username") and reseller_data.get("netplay_password"):
+                    # Autentica usando as credenciais do revendedor
+                    auth_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+                    auth_response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", 
+                                                headers=auth_headers, 
+                                                json={"username": reseller_data["netplay_username"], 
+                                                     "password": reseller_data["netplay_password"]})
+                    auth_response.raise_for_status()
+                    token_to_use = auth_response.json().get("token") or auth_response.json().get("access_token")
+            
+            if not token_to_use:
+                raise HTTPException(status_code=401, detail="Token de autenticação não disponível para carregar pacotes.")
+            
+            headers_temp = {**NETPLAY_HEADERS, "authorization": f"Bearer {token_to_use}"}
             response = requests.get(f"{NETPLAY_API_BASE_URL}/servers", headers=headers_temp)
             response.raise_for_status()
             servers_data = response.json().get("data", [])

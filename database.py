@@ -331,6 +331,31 @@ class Database:
         
         conn.commit()
         conn.close()
+    
+    def get_reseller_by_id(self, reseller_id):
+        """Obtém dados de um revendedor pelo ID"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT id, username, email, netplay_username, netplay_password, is_blocked, blocked_reason FROM resellers WHERE id = ?",
+            (reseller_id,)
+        )
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                "id": result[0],
+                "username": result[1],
+                "email": result[2],
+                "netplay_username": result[3],
+                "netplay_password": result[4],
+                "is_blocked": result[5],
+                "blocked_reason": result[6]
+            }
+        return None
 
 # Instância global do banco de dados
 db = Database()
