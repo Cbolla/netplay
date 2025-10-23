@@ -187,9 +187,23 @@ async def login(request: LoginRequest, req: Request):
     try:
         response = requests.post(f"{NETPLAY_API_BASE_URL}/auth/login", headers=headers, json=request.dict())
         response.raise_for_status()
-        token = response.json().get("token") or response.json().get("access_token")
+        login_body = response.json()
+        token = login_body.get("token") or login_body.get("access_token")
         if not token: raise HTTPException(status_code=401, detail="Token não encontrado.")
         AUTH_TOKEN = token
+        
+        # Captura netplay_user_id da resposta de login, se disponível
+        netplay_uid = None
+        try:
+            netplay_uid = (login_body.get("user", {}) or {}).get("id")
+            if not netplay_uid:
+                netplay_uid = login_body.get("userId") or login_body.get("user_id")
+            if not netplay_uid and isinstance(login_body, dict):
+                data = login_body.get("data")
+                if isinstance(data, dict):
+                    netplay_uid = data.get("id") or data.get("userId") or data.get("user_id")
+        except Exception:
+            pass
         
         # Verifica se o revendedor já existe no banco local
         reseller = db.authenticate_reseller(request.username, request.password)
@@ -216,6 +230,32 @@ async def login(request: LoginRequest, req: Request):
                 db.log_activity(reseller["id"], "LOGIN_BLOCKED", f"Tentativa de login bloqueada: {reseller_info['blocked_reason']}", req.client.host)
                 raise HTTPException(status_code=403, detail=f"Conta bloqueada: {reseller_info['blocked_reason']}")
         
+        # Se obtivemos netplay_uid, persistir no banco e no objeto reseller
+        if 'netplay_uid' in locals() and netplay_uid:
+            try:
+                db.update_reseller_netplay_user_id(reseller["id"], netplay_uid)
+                reseller["netplay_user_id"] = netplay_uid
+            except Exception:
+                pass
+        else:
+            # Tentar pegar via /auth/me como fallback
+            try:
+                me_headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {token}"}
+                for url in [f"{NETPLAY_API_BASE_URL}/auth/me", f"{NETPLAY_API_BASE_URL}/users/me", f"{NETPLAY_API_BASE_URL}/me"]:
+                    me_resp = requests.get(url, headers=me_headers)
+                    if me_resp.status_code == 200:
+                        body = me_resp.json()
+                        uid = body.get("id") or body.get("userId") or body.get("user_id")
+                        if not uid and isinstance(body, dict):
+                            data = body.get("data") or body
+                            uid = (data.get("id") if isinstance(data, dict) else None) or (data.get("userId") if isinstance(data, dict) else None) or (data.get("user_id") if isinstance(data, dict) else None)
+                        if uid:
+                            db.update_reseller_netplay_user_id(reseller["id"], uid)
+                            reseller["netplay_user_id"] = uid
+                            break
+            except Exception:
+                pass
+        
         # Criar sessão ativa
         session_token = db.create_session(reseller["id"])
         
@@ -229,7 +269,8 @@ async def login(request: LoginRequest, req: Request):
             "token": token,
             "session_token": session_token,
             "reseller_id": reseller["id"],
-            "username": reseller["username"]
+            "username": reseller["username"],
+            "netplay_user_id": reseller.get("netplay_user_id")
         }
     except HTTPException:
         raise
@@ -506,18 +547,109 @@ async def test_credentials(request: ClientLoginRequest):
         }
 
 @app.get("/api/search_customer")
-async def search_customer(account_number: str = None, server_id: str = None):
-    if not AUTH_TOKEN: raise HTTPException(status_code=401, detail="Não autenticado.")
-    headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}"}
+async def search_customer(account_number: str = None, server_id: str = None, perPage: int | None = None, status: str | None = None, reseller_id: int | None = None, userId: str | None = None, packageId: str | None = None, expiryFrom: str | None = None, expiryTo: str | None = None, isTrial: str | None = None, connections: str | None = None):
+    global AUTH_TOKEN
+    if not AUTH_TOKEN and not reseller_id:
+        raise HTTPException(status_code=401, detail="Não autenticado.")
+    
     params = {}
     if account_number: params["username"] = account_number
     if server_id: params["serverId"] = server_id
-    if not account_number and not server_id:
-        raise HTTPException(status_code=400, detail="Forneça um número de conta ou servidor.")
+    if packageId: params["packageId"] = packageId
+    if expiryFrom: params["expiryFrom"] = expiryFrom
+    if expiryTo: params["expiryTo"] = expiryTo
+    if isTrial: params["isTrial"] = isTrial
+    if connections: params["connections"] = connections
+    params["status"] = status or "ACTIVE"
+    if perPage:
+        params["perPage"] = perPage
+    if userId:
+        params["userId"] = userId
+    else:
+        # Se não foi informado userId explicitamente e não há reseller_id, usar o netplay_user_id do usuário logado
+        if not reseller_id:
+            if CURRENT_RESELLER and CURRENT_RESELLER.get("netplay_user_id"):
+                params["userId"] = CURRENT_RESELLER["netplay_user_id"]
+            else:
+                # Tentativa de obter via /auth/me e persistir
+                try:
+                    me_headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}"}
+                    for url in [f"{NETPLAY_API_BASE_URL}/auth/me", f"{NETPLAY_API_BASE_URL}/users/me", f"{NETPLAY_API_BASE_URL}/me"]:
+                        me_resp = requests.get(url, headers=me_headers)
+                        if me_resp.status_code == 200:
+                            body = me_resp.json()
+                            uid = body.get("id") or body.get("userId") or body.get("user_id")
+                            if not uid and isinstance(body, dict):
+                                data = body.get("data") or body
+                                uid = (data.get("id") if isinstance(data, dict) else None) or (data.get("userId") if isinstance(data, dict) else None) or (data.get("user_id") if isinstance(data, dict) else None)
+                            if uid:
+                                params["userId"] = uid
+                                if CURRENT_RESELLER:
+                                    db.update_reseller_netplay_user_id(CURRENT_RESELLER["id"], uid)
+                                    CURRENT_RESELLER["netplay_user_id"] = uid
+                                break
+                except Exception:
+                    pass
+    
     try:
+        # Se foi informada uma revenda específica, usar credenciais dela
+        if reseller_id:
+            reseller = db.get_reseller_by_id(reseller_id)
+            if not reseller or not reseller.get("netplay_username") or not reseller.get("netplay_password"):
+                raise HTTPException(status_code=404, detail="Credenciais da revenda não encontradas")
+            login_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+            login_resp = requests.post(
+                f"{NETPLAY_API_BASE_URL}/auth/login",
+                headers=login_headers,
+                json={"username": reseller["netplay_username"], "password": reseller["netplay_password"]}
+            )
+            login_resp.raise_for_status()
+            reseller_token = login_resp.json().get("token") or login_resp.json().get("access_token")
+            if not reseller_token:
+                raise HTTPException(status_code=500, detail="Falha ao autenticar revenda na Netplay")
+            headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {reseller_token}"}
+        else:
+            if not AUTH_TOKEN:
+                raise HTTPException(status_code=401, detail="Não autenticado.")
+            headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}"}
+        
         response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+        if response.status_code == 401:
+            # Tenta reautenticar e refazer a requisição
+            try:
+                if reseller_id:
+                    reseller = db.get_reseller_by_id(reseller_id)
+                    if reseller and reseller.get("netplay_username") and reseller.get("netplay_password"):
+                        login_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+                        login_resp = requests.post(
+                            f"{NETPLAY_API_BASE_URL}/auth/login",
+                            headers=login_headers,
+                            json={"username": reseller["netplay_username"], "password": reseller["netplay_password"]}
+                        )
+                        login_resp.raise_for_status()
+                        reseller_token = login_resp.json().get("token") or login_resp.json().get("access_token")
+                        headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {reseller_token}"}
+                        response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+                else:
+                    # Reautentica usando credenciais da revenda atual
+                    if CURRENT_RESELLER:
+                        reseller = db.get_reseller_by_id(CURRENT_RESELLER["id"]) if CURRENT_RESELLER.get("id") else None
+                        if reseller and reseller.get("netplay_username") and reseller.get("netplay_password"):
+                            login_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+                            login_resp = requests.post(
+                                f"{NETPLAY_API_BASE_URL}/auth/login",
+                                headers=login_headers,
+                                json={"username": reseller["netplay_username"], "password": reseller["netplay_password"]}
+                            )
+                            login_resp.raise_for_status()
+                            AUTH_TOKEN = login_resp.json().get("token") or login_resp.json().get("access_token")
+                            headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}"}
+                            response = requests.get(f"{NETPLAY_API_BASE_URL}/customers", headers=headers, params=params)
+            except Exception:
+                pass
         response.raise_for_status()
-        return {"clientes": response.json().get("data", [])}
+        clientes = response.json().get("data", [])
+        return {"clientes": clientes}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao pesquisar cliente: {e}")
 
@@ -1028,12 +1160,87 @@ async def get_admin_stats():
 
 @app.get("/api/admin/resellers")
 async def get_all_resellers():
-    """Lista todos os revendedores para o painel admin"""
+    """Lista todos os revendedores para o painel admin (inclui netplay_user_id)"""
     try:
-        resellers = db.get_all_resellers()
-        return {"success": True, "resellers": resellers}
+        basics = db.get_all_resellers()
+        fulls = db.get_all_resellers_full()
+        full_map = {r["id"]: r for r in fulls}
+        merged = []
+        for b in basics:
+            f = full_map.get(b["id"], {})
+            merged.append({
+                "id": b["id"],
+                "username": b["username"],
+                "email": b.get("email"),
+                "is_blocked": b.get("is_blocked"),
+                "blocked_reason": b.get("blocked_reason"),
+                "created_at": b.get("created_at"),
+                "netplay_username": f.get("netplay_username"),
+                "netplay_user_id": f.get("netplay_user_id")
+            })
+        return {"success": True, "resellers": merged}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter revendedores: {e}")
+
+@app.get("/api/admin/netplay_user_ids")
+async def get_netplay_user_ids():
+    """Lista distintos user_ids observados no NetPlay (a partir de /customers)"""
+    try:
+        if NETPLAY_USERNAME == "seu_usuario_admin" or NETPLAY_PASSWORD == "sua_senha_admin":
+            raise HTTPException(status_code=400, detail="Credenciais NetPlay não configuradas")
+        # Autentica no NetPlay com credenciais administrativas
+        auth_headers = {**NETPLAY_HEADERS, "content-type": "application/json"}
+        login_resp = requests.post(
+            f"{NETPLAY_API_BASE_URL}/auth/login",
+            headers=auth_headers,
+            json={"username": NETPLAY_USERNAME, "password": NETPLAY_PASSWORD}
+        )
+        if login_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Falha ao autenticar no NetPlay: {login_resp.text}")
+        token = login_resp.json().get("token") or login_resp.json().get("access_token")
+        headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {token}"}
+        
+        user_ids = set()
+        page = 1
+        last_page = None
+        max_pages = 10
+        
+        while True:
+            customers_resp = requests.get(
+                f"{NETPLAY_API_BASE_URL}/customers",
+                headers=headers,
+                params={"page": page}
+            )
+            if customers_resp.status_code != 200:
+                break
+            body = customers_resp.json()
+            items = body.get("data") or body.get("clientes") or []
+            for item in items:
+                uid = item.get("user_id") or item.get("userId")
+                if uid:
+                    user_ids.add(uid)
+            links = body.get("links") or {}
+            if last_page is None and links.get("last"):
+                try:
+                    from urllib.parse import urlparse, parse_qs
+                    q = parse_qs(urlparse(links["last"]).query)
+                    last_page = int(q.get("page", [page])[0])
+                except Exception:
+                    last_page = None
+            if last_page is not None:
+                if page >= last_page:
+                    break
+            else:
+                # Sem informação de última página: para evitar loops infinitos, limita a 10 páginas ou para quando não houver próximo
+                if page >= max_pages or not links.get("next"):
+                    break
+            page += 1
+        
+        return {"success": True, "user_ids": sorted(list(user_ids))}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao obter user_ids do NetPlay: {e}")
 
 @app.post("/api/admin/block")
 async def block_resellers(request: BlockResellerRequest, req: Request):

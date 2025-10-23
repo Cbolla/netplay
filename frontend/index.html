@@ -74,6 +74,26 @@
                                         <input type="checkbox" id="select-all-customers">
                                         <label for="select-all-customers">Selecionar Todos</label>
                                     </div>
+
+                                    <!-- Seletor de Revendas -->
+                                    <div class="reseller-select-control">
+                                        <label for="reseller-select"><i class="fas fa-users"></i> Revendas:</label>
+                                        <select id="reseller-select">
+                                            <option value="">Todas as revendas</option>
+                                        </select>
+                                    </div>
+                                    <!-- Controle de itens por página -->
+                                    <div class="page-size-control">
+                                        <label for="customer-page-size">Itens por página:</label>
+                                        <select id="customer-page-size">
+                                            <option value="10">10</option>
+                                            <option value="15" selected>15</option>
+                                            <option value="25">25</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                            <option value="all">Todos</option>
+                                        </select>
+                                    </div>
                                     <button id="btn-batch-migrar" class="btn-action hidden">
                                         <i class="fas fa-exchange-alt"></i> Migrar Selecionados
                                     </button>
@@ -92,6 +112,12 @@
                                     </thead>
                                     <tbody></tbody>
                                 </table>
+                            </div>
+                            <!-- Controles de paginação -->
+                            <div id="customer-pagination" class="pagination-controls">
+                                <button id="btn-prev-page" class="btn-secondary small-button">&laquo; Anterior</button>
+                                <span id="customer-page-info"></span>
+                                <button id="btn-next-page" class="btn-secondary small-button">Próxima &raquo;</button>
                             </div>
                         </div>
                     </div>

@@ -42,6 +42,12 @@ class Database:
         except sqlite3.OperationalError:
             pass  # Coluna já existe
         
+        # Adicionar coluna netplay_user_id se não existir
+        try:
+            cursor.execute('ALTER TABLE resellers ADD COLUMN netplay_user_id TEXT')
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
+        
         # Tabela de sessões
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sessions (
@@ -356,6 +362,35 @@ class Database:
                 "blocked_reason": result[6]
             }
         return None
+    
+    def get_all_resellers_full(self):
+        """Retorna todos os revendedores com credenciais Netplay e netplay_user_id"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, netplay_username, netplay_password, netplay_user_id FROM resellers")
+        results = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "id": row[0],
+                "username": row[1],
+                "netplay_username": row[2],
+                "netplay_password": row[3],
+                "netplay_user_id": row[4]
+            }
+            for row in results
+        ]
+    
+    def update_reseller_netplay_user_id(self, reseller_id, netplay_user_id):
+        """Atualiza o netplay_user_id do revendedor"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE resellers SET netplay_user_id = ? WHERE id = ?",
+            (netplay_user_id, reseller_id)
+        )
+        conn.commit()
+        conn.close()
 
 # Instância global do banco de dados
 db = Database()

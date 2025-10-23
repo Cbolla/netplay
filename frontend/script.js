@@ -104,6 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const customerDetailsModal = document.getElementById('customer-details-modal');
     const usernameDisplay = document.getElementById('username-display');
     const accountNumberInput = document.getElementById('account-number');
+    const statusFilterSelect = document.getElementById('customer-status-filter');
+
+    const resellerSelect = document.getElementById('reseller-select');
 
     // --- Estado da Aplicação ---
     let AUTH_TOKEN = null;
@@ -141,7 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
             CURRENT_RESELLER = {
                 id: data.reseller_id,
                 username: data.username,
-                token: data.token
+                token: data.token,
+                netplay_user_id: data.netplay_user_id || null
             };
             
             Toast.show('Login bem-sucedido!', 'success');
@@ -162,11 +166,15 @@ document.addEventListener('DOMContentLoaded', () => {
         Loading.show('Carregando dados...');
         try {
             const res = await fetch('/api/servidores_e_planos', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
-            if (!res.ok) throw new Error((await res.json()).detail || 'Falha ao carregar servidores');
             const data = await res.json();
-            allAvailableServers = data.servers;
+            if (!res.ok) throw new Error(data.detail || 'Falha ao carregar servidores');
+            
+            allAvailableServers = data.servers || [];
             sourceServerSelect.innerHTML = '<option value="">Todos os servidores</option>';
             allAvailableServers.forEach(server => sourceServerSelect.add(new Option(server.name, server.id)));
+            
+            // Carregar lista de revendas
+            await loadResellersForSelect();
             
             // Carregar links gerados automaticamente após o login
             await loadGeneratedLinks();
@@ -187,27 +195,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const performSearch = async () => {
         const accountNumber = accountNumberInput.value;
         const sourceServerId = sourceServerSelect.value;
-        
-        if (!accountNumber && !sourceServerId) {
-            hide(customerResultsContainer);
-            customerTableBody.innerHTML = '';
-            return;
-        }
-
+        const statusValue = 'ACTIVE';
+        const selectedIndex = resellerSelect ? resellerSelect.selectedIndex : -1;
+        const selectedOption = selectedIndex >= 0 ? resellerSelect.options[selectedIndex] : null;
+        // Extrai valores do option
+        const resellerId = selectedOption && selectedOption.dataset ? selectedOption.dataset.resellerId : '';
+        const netplayUserId = selectedOption && selectedOption.dataset ? selectedOption.dataset.userId : '';
+    
         try {
             const params = new URLSearchParams();
             if (accountNumber) params.append('account_number', accountNumber);
             if (sourceServerId) params.append('server_id', sourceServerId);
-
+            // Status fixo para ACTIVE (remoção do filtro de status do UI)
+            params.append('status', statusValue);
+            if (pageSizeSelect && pageSizeSelect.value !== 'all') {
+                params.append('perPage', pageSizeSelect.value);
+            }
+            if (netplayUserId) {
+                params.append('userId', netplayUserId);
+            } else if (resellerId) {
+                params.append('reseller_id', resellerId);
+            } else if (CURRENT_RESELLER && CURRENT_RESELLER.netplay_user_id) {
+                params.append('userId', CURRENT_RESELLER.netplay_user_id);
+            }
             const response = await fetch(`/api/search_customer?${params.toString()}`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || 'Erro na busca');
-
-            allClientsData = data.clientes || [];
+            let results = data.clientes || [];
+            allClientsData = results;
             displayCustomerResults(allClientsData);
         } catch (error) {
             Toast.show(error.message, 'error');
-            hide(customerResultsContainer);
         }
     };
 
@@ -217,26 +235,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     sourceServerSelect.addEventListener('change', performSearch);
+// Removido: statusFilterSelect && statusFilterSelect.addEventListener('change', performSearch);
+
+resellerSelect && resellerSelect.addEventListener('change', performSearch);
 
     function displayCustomerResults(clients) {
-        customerTableBody.innerHTML = '';
-        clients.forEach(client => {
-            const row = customerTableBody.insertRow();
-            const serverName = client.server || 'N/A';
-            row.innerHTML = `
-                <td><input type="checkbox" class="customer-checkbox" value="${client.id}"></td>
-                <td>${client.username || 'N/A'}</td>
-                <td>${client.name || 'N/A'}</td>
-                <td>${serverName}</td>
-                <td>
-                    <button class="btn-secondary small-button view-details-btn" data-id="${client.id}"><i class="fas fa-eye"></i> Ver Mais</button>
-                    <button class="btn-action small-button migrate-single-btn" data-id="${client.id}"><i class="fas fa-exchange-alt"></i> Migrar</button>
-                    <button class="btn-primary small-button generate-link-btn" data-username="${client.username}" data-id="${client.id}"><i class="fas fa-link"></i> Gerar Link</button>
-                </td>
-            `;
-        });
+        customerFilteredData = clients || [];
+        customerCurrentPage = 1;
+        renderCustomerTablePage();
         show(customerResultsContainer);
-        updateBatchMigrateButtonState();
     }
     
     customerTableBody.addEventListener('click', e => {
@@ -542,6 +549,97 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Função para carregar revendas no select
+    async function loadResellersForSelect() {
+        try {
+            console.log('Carregando revendas para o select...');
+            const response = await fetch('/api/admin/resellers', {
+                headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+            });
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.detail || 'Erro ao carregar revendas');
+            }
+            
+            // Limpar opções existentes
+            resellerSelect.innerHTML = '<option value="" data-reseller-id="" data-user-id="">Todas as revendas</option>';
+            
+            // Adicionar opção destacando a conta logada (se soubermos o userId)
+            if (CURRENT_RESELLER && CURRENT_RESELLER.netplay_user_id) {
+                const myOpt = document.createElement('option');
+                myOpt.value = CURRENT_RESELLER.netplay_user_id;
+                myOpt.dataset.userId = CURRENT_RESELLER.netplay_user_id;
+                myOpt.textContent = CURRENT_RESELLER.username || 'Minha revenda';
+                resellerSelect.appendChild(myOpt);
+            }
+            
+            // Adicionar opções das revendas
+            if (data.resellers && data.resellers.length > 0) {
+                data.resellers.forEach(reseller => {
+                    const option = document.createElement('option');
+                    option.value = reseller.id; // compatibilidade
+                    option.dataset.resellerId = reseller.id;
+                    if (reseller.netplay_user_id) option.dataset.userId = reseller.netplay_user_id;
+                    option.textContent = reseller.email || reseller.username || reseller.netplay_username || `Revenda ${reseller.id}`;
+                    resellerSelect.appendChild(option);
+                });
+                console.log(`${data.resellers.length} revendas carregadas no select`);
+                // Após carregar revendas locais, também carregar user_ids do NetPlay e mesclar evitando duplicados
+                try {
+                    const resp2 = await fetch('/api/admin/netplay_user_ids', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+                    const data2 = await resp2.json();
+                    if (!resp2.ok) throw new Error(data2.detail || 'Erro ao obter user_ids');
+                    const existingUserIds = new Set(Array.from(resellerSelect.options).map(opt => opt.dataset.userId).filter(Boolean));
+                    (data2.user_ids || []).forEach(uid => {
+                        if (!existingUserIds.has(uid)) {
+                            const option = document.createElement('option');
+                            option.value = uid;
+                            option.dataset.userId = uid;
+                            option.textContent = uid;
+                            resellerSelect.appendChild(option);
+                        }
+                    });
+                    console.log('Merge de user_ids do NetPlay concluído');
+                } catch (e2) {
+                    console.warn('Não foi possível mesclar user_ids do NetPlay:', e2);
+                }
+            } else {
+                console.log('Nenhuma revenda local encontrada, buscando user_ids do NetPlay...');
+                try {
+                    const resp2 = await fetch('/api/admin/netplay_user_ids', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+                    const data2 = await resp2.json();
+                    if (!resp2.ok) throw new Error(data2.detail || 'Erro ao obter user_ids');
+                    (data2.user_ids || []).forEach(uid => {
+                        const option = document.createElement('option');
+                        option.value = uid;
+                        option.dataset.userId = uid;
+                        option.textContent = uid;
+                        resellerSelect.appendChild(option);
+                    });
+                    console.log(`${(data2.user_ids || []).length} user_ids carregados no select`);
+                } catch (e2) {
+                    console.error('Erro ao obter user_ids do NetPlay:', e2);
+                    Toast.show('Erro ao obter user_ids do NetPlay.', 'error');
+                }
+            }
+            
+            // Seleciona por padrão o userId da conta logada, se existir no select
+            if (CURRENT_RESELLER && CURRENT_RESELLER.netplay_user_id) {
+                const idx = Array.from(resellerSelect.options).findIndex(opt => opt.dataset.userId === String(CURRENT_RESELLER.netplay_user_id));
+                if (idx >= 0) {
+                    resellerSelect.selectedIndex = idx;
+                }
+            }
+            
+            // Dispara a busca com o filtro padrão (userId do login)
+            performSearch();
+        } catch (e) {
+            console.error('Erro ao carregar revendas:', e);
+            Toast.show(e.message || 'Erro ao carregar revendas', 'error');
+        }
+    }
+
     // Função para exibir links na tabela
     function displayGeneratedLinks(links) {
         generatedLinksTbody.innerHTML = '';
@@ -614,10 +712,9 @@ document.addEventListener('DOMContentLoaded', () => {
     async function deleteGeneratedLink(linkId) {
         try {
             Loading.show();
-            const response = await apiRequest(`/api/generated_links/${linkId}`, {
+            const data = await apiRequest(`/api/generated_links/${linkId}`, {
                 method: 'DELETE'
             });
-            const data = await response.json();
             
             if (data.success) {
                 Toast.show('Link excluído com sucesso!', 'success');
@@ -688,6 +785,82 @@ document.addEventListener('DOMContentLoaded', () => {
     // document.addEventListener('DOMContentLoaded', () => {
     //     setTimeout(loadGeneratedLinks, 1000);
     // });
+
+    // Paginação da tabela de clientes
+    let customerCurrentPage = 1;
+    let customerPageSize = 15; // default
+    let customerFilteredData = [];
+
+    const pageSizeSelect = document.getElementById('customer-page-size');
+    const btnPrevPage = document.getElementById('btn-prev-page');
+    const btnNextPage = document.getElementById('btn-next-page');
+    const pageInfo = document.getElementById('customer-page-info');
+
+    function updatePaginationControls() {
+      const totalItems = customerFilteredData.length;
+      const totalPages = customerPageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / customerPageSize));
+      pageInfo.textContent = customerPageSize === 'all'
+        ? `Exibindo todos (${totalItems})`
+        : `Página ${customerCurrentPage} de ${totalPages} (Total: ${totalItems})`;
+      btnPrevPage.disabled = customerPageSize === 'all' || customerCurrentPage <= 1;
+      btnNextPage.disabled = customerPageSize === 'all' || customerCurrentPage >= totalPages;
+    }
+
+    function renderCustomerTablePage() {
+      customerTableBody.innerHTML = '';
+      let itemsToRender = customerFilteredData;
+      if (customerPageSize !== 'all') {
+        const start = (customerCurrentPage - 1) * customerPageSize;
+        const end = start + customerPageSize;
+        itemsToRender = customerFilteredData.slice(start, end);
+      }
+      itemsToRender.forEach(client => {
+        const row = customerTableBody.insertRow();
+        const serverName = client.server || 'N/A';
+        row.innerHTML = `
+          <td><input type="checkbox" class="customer-checkbox" value="${client.id}"></td>
+          <td>${client.username || 'N/A'}</td>
+          <td>${client.name || 'N/A'}</td>
+          <td>${serverName}</td>
+          <td>
+            <button class="btn-secondary small-button view-details-btn" data-id="${client.id}"><i class="fas fa-eye"></i> Ver Mais</button>
+            <button class="btn-action small-button migrate-single-btn" data-id="${client.id}"><i class="fas fa-exchange-alt"></i> Migrar</button>
+            <button class="btn-primary small-button generate-link-btn" data-username="${client.username}" data-id="${client.id}"><i class="fas fa-link"></i> Gerar Link</button>
+          </td>
+        `;
+      });
+      updatePaginationControls();
+      updateBatchMigrateButtonState();
+    }
+
+    // Handlers
+    if (pageSizeSelect) {
+      pageSizeSelect.addEventListener('change', () => {
+        const val = pageSizeSelect.value;
+        customerPageSize = val === 'all' ? 'all' : parseInt(val, 10);
+        customerCurrentPage = 1;
+        renderCustomerTablePage();
+      });
+    }
+    if (btnPrevPage) {
+      btnPrevPage.addEventListener('click', () => {
+        if (customerPageSize !== 'all' && customerCurrentPage > 1) {
+          customerCurrentPage -= 1;
+          renderCustomerTablePage();
+        }
+      });
+    }
+    if (btnNextPage) {
+      btnNextPage.addEventListener('click', () => {
+        if (customerPageSize !== 'all') {
+          const totalPages = Math.max(1, Math.ceil(customerFilteredData.length / customerPageSize));
+          if (customerCurrentPage < totalPages) {
+            customerCurrentPage += 1;
+            renderCustomerTablePage();
+          }
+        }
+      });
+    }
 
     // --- Inicialização ---
     showLogin();
