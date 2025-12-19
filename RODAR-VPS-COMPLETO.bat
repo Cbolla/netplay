@@ -8,17 +8,7 @@ echo   🎮 NETPLAY VPS - INICIANDO TUDO
 echo ==========================================
 echo.
 
-echo ⏳ [1/4] Instalando dependencias Python...
-python -m pip install --upgrade pip --quiet
-python -m pip install -r requirements.txt --quiet
-
-echo ✅ [2/4] Configurando ambiente...
-if not exist .env (
-    copy .env.example .env >nul 2>&1
-    echo    📝 Arquivo .env criado automaticamente
-)
-
-echo ✅ [3/4] Iniciando servidor Python...
+echo ✅ [1/2] Iniciando servidor Python...
 echo    📍 Local: http://localhost:8000
 echo.
 
@@ -28,12 +18,12 @@ start /b python main.py
 REM Aguarda o servidor iniciar
 timeout /t 3 /nobreak >nul
 
-echo ✅ [4/4] Iniciando Cloudflare Tunnel...
+echo ✅ [2/2] Iniciando Cloudflare Tunnel...
 echo    🌍 Conectando ao Cloudflare...
-echo    🔗 URL: https://servidormigrarcliente.io
+echo    ⏳ Aguarde a URL aparecer abaixo...
 echo.
 echo ==========================================
-echo   ✅ TUDO RODANDO COM SUCESSO!
+echo   ✅ SERVIDOR RODANDO!
 echo ==========================================
 echo.
 echo ⚠️  MANTENHA ESTA JANELA ABERTA!
@@ -41,8 +31,8 @@ echo ⚠️  Para PARAR: Feche esta janela ou Ctrl+C
 echo ==========================================
 echo.
 
-REM Executa o tunnel fixo (isso mantém a janela aberta)
-.\cloudflared.exe tunnel --config config.yml run
+REM Executa o tunnel temporário (não precisa de login)
+.\cloudflared.exe tunnel --url http://localhost:8000 --no-autoupdate
 
 echo.
 echo [INFO] Tunnel encerrado.

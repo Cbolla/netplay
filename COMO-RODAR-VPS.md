@@ -6,10 +6,14 @@ Use o arquivo **`RODAR-VPS-COMPLETO.bat`** para rodar tudo de uma vez na sua VPS
 
 ### O que ele faz:
 
-1. ✅ Instala dependências Python automaticamente
-2. ✅ Inicia o servidor Python (FastAPI)
-3. ✅ Inicia o Cloudflare Tunnel
-4. ✅ Conecta ao seu domínio fixo: https://servidormigrarcliente.io
+1. ✅ Inicia o servidor Python (FastAPI)
+2. ✅ Inicia o Cloudflare Tunnel
+3. ✅ Conecta ao seu domínio fixo: https://servidormigrarcliente.io
+
+> **Nota:** As dependências Python devem estar instaladas previamente. Se precisar instalar, rode antes:
+> ```
+> python -m pip install -r requirements.txt
+> ```
 
 ### Como usar:
 
