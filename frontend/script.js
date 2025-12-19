@@ -50,13 +50,13 @@ async function apiRequest(url, options = {}) {
             },
             ...options
         });
-        
+
         const data = await response.json();
-        
+
         if (!response.ok) {
             throw new Error(data.detail || 'Erro na requisição');
         }
-        
+
         return data;
     } catch (error) {
         console.error('Erro na API:', error);
@@ -86,7 +86,7 @@ const Modal = {
 
 document.addEventListener('DOMContentLoaded', () => {
     Toast.init();
-    
+
     // --- Referências aos Elementos ---
     const loginSection = document.getElementById('login-section');
     const panelSection = document.getElementById('panel-section');
@@ -107,6 +107,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusFilterSelect = document.getElementById('customer-status-filter');
 
     const resellerSelect = document.getElementById('reseller-select');
+
+    // --- Elementos de Link Fixo do Revendedor ---
 
     // --- Estado da Aplicação ---
     let AUTH_TOKEN = null;
@@ -137,9 +139,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || 'Erro no login');
-            
+
             AUTH_TOKEN = data.token;
-            
+
             // Define CURRENT_RESELLER com os dados da resposta
             CURRENT_RESELLER = {
                 id: data.reseller_id,
@@ -147,13 +149,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 token: data.token,
                 netplay_user_id: data.netplay_user_id || null
             };
-            
+
             Toast.show('Login bem-sucedido!', 'success');
             usernameDisplay.textContent = loginForm.username.value;
             show(document.getElementById('user-info'));
             hide(loginSection);
             show(panelSection);
-            
+
             loadInitialData();
         } catch (error) {
             Toast.show(error.message, 'error');
@@ -168,18 +170,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/servidores_e_planos', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Falha ao carregar servidores');
-            
+
             allAvailableServers = data.servers || [];
             sourceServerSelect.innerHTML = '<option value="">Todos os servidores</option>';
             allAvailableServers.forEach(server => sourceServerSelect.add(new Option(server.name, server.id)));
-            
+
             // Carregar lista de revendas
             await loadResellersForSelect();
-            
-            // Carregar links gerados automaticamente após o login
-            await loadGeneratedLinks();
+
+            // Carregar link fixo do revendedor
             await loadResellerFixedLink();
-            
+
         } catch (error) {
             Toast.show(error.message, 'error');
         } finally {
@@ -201,18 +202,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // Extrai valores do option
         const resellerId = selectedOption && selectedOption.dataset ? selectedOption.dataset.resellerId : '';
         const netplayUserId = selectedOption && selectedOption.dataset ? selectedOption.dataset.userId : '';
-    
+
         try {
             const params = new URLSearchParams();
             if (accountNumber) params.append('account_number', accountNumber);
             if (sourceServerId) params.append('server_id', sourceServerId);
             // Status fixo para ACTIVE (remoção do filtro de status do UI)
             params.append('status', statusValue);
-            if (pageSizeSelect) {
-                // Quando 'all' é selecionado, envia um número grande (9999) para pegar todos os clientes
-                const perPageValue = pageSizeSelect.value === 'all' ? '9999' : pageSizeSelect.value;
-                params.append('perPage', perPageValue);
-            }
+
+            // Configurar perPage - sempre usar 9999 para carregar todos os clientes
+            // A paginação será feita no frontend
+            const perPageValue = (pageSizeSelect && pageSizeSelect.value) ?
+                (pageSizeSelect.value === 'all' ? '9999' : pageSizeSelect.value) : '9999';
+            params.append('perPage', perPageValue);
+
             if (netplayUserId) {
                 params.append('userId', netplayUserId);
             } else if (resellerId) {
@@ -237,9 +240,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     sourceServerSelect.addEventListener('change', performSearch);
-// Removido: statusFilterSelect && statusFilterSelect.addEventListener('change', performSearch);
+    // Removido: statusFilterSelect && statusFilterSelect.addEventListener('change', performSearch);
 
-resellerSelect && resellerSelect.addEventListener('change', performSearch);
+    resellerSelect && resellerSelect.addEventListener('change', performSearch);
 
     function displayCustomerResults(clients) {
         customerFilteredData = clients || [];
@@ -247,25 +250,20 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
         renderCustomerTablePage();
         show(customerResultsContainer);
     }
-    
+
     customerTableBody.addEventListener('click', e => {
         if (e.target.classList.contains('customer-checkbox')) {
             updateBatchMigrateButtonState();
             return;
         }
         const viewBtn = e.target.closest('.view-details-btn');
-        if(viewBtn) {
+        if (viewBtn) {
             showCustomerDetails(viewBtn.dataset.id);
             return;
         }
         const migrateBtn = e.target.closest('.migrate-single-btn');
-        if(migrateBtn) {
+        if (migrateBtn) {
             handleSingleMigration(migrateBtn.dataset.id);
-            return;
-        }
-        const generateLinkBtn = e.target.closest('.generate-link-btn');
-        if(generateLinkBtn) {
-            handleGenerateClientLink(generateLinkBtn.dataset.username, generateLinkBtn.dataset.id);
             return;
         }
     });
@@ -317,7 +315,7 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
         e.preventDefault();
         batchMigrateCustomers();
     });
-    
+
     document.getElementById('cancel-modal-migrar').addEventListener('click', () => Modal.hide('modal-migrar'));
     document.getElementById('close-modal-migrar').addEventListener('click', () => Modal.hide('modal-migrar'));
 
@@ -325,13 +323,13 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
         const serverId = serverSelectModal.value;
         const selectedOption = serverSelectModal.options[serverSelectModal.selectedIndex];
         const serverName = selectedOption ? selectedOption.text : null;
-        
+
         if (!serverId) return Toast.show('Selecione um servidor de destino.', 'error');
 
         const customersToMigrate = allClientsData
             .filter(client => selectedCustomerIds.has(String(client.id)) && client.package)
-            .map(client => ({ 
-                id: String(client.id), 
+            .map(client => ({
+                id: String(client.id),
                 username: String(client.username),
                 package_name: String(client.package) // Envia o NOME do plano
             }));
@@ -341,13 +339,13 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
         }
         if (customersToMigrate.length === 0) return Toast.show('Nenhum cliente válido para migrar.', 'error');
 
-        const payload = { 
-            customers: customersToMigrate, 
-            server_id: serverId, 
+        const payload = {
+            customers: customersToMigrate,
+            server_id: serverId,
             server_name: serverName
         };
         Loading.show(`Processando ${customersToMigrate.length} cliente(s)...`);
-        
+
         try {
             const response = await fetch('/api/batch_migrar', {
                 method: 'PUT',
@@ -397,159 +395,8 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
         }
     }
 
-    // --- Funcionalidade de Geração de Links para Clientes ---
-    const generateClientLinkForm = document.getElementById('generate-client-link-form');
-    const generatedLinkContainer = document.getElementById('generated-link-container');
-    const generatedLinkInput = document.getElementById('generated-link');
-    const copyLinkBtn = document.getElementById('copy-link-btn');
 
-    // Função para gerar link diretamente da tabela
-    async function handleGenerateClientLink(username, clientId) {
-        try {
-            Loading.show();
-            
-            // Buscar dados do cliente para obter a senha
-            const clientData = await getClientData(clientId);
-            if (!clientData || !clientData.password) {
-                Toast.show('Não foi possível obter os dados do cliente.', 'error');
-                return;
-            }
-            
-            const response = await apiRequest('/api/create_client_link', {
-                method: 'POST',
-                body: JSON.stringify({
-                    client_username: username,
-                    client_password: clientData.password
-                })
-            });
-            
-            if (response.success) {
-                // Mostrar o link gerado
-                generatedLinkInput.value = response.link_url;
-                generatedLinkContainer.classList.remove('hidden');
-                
-                // Scroll para a seção do link
-                generatedLinkContainer.scrollIntoView({ behavior: 'smooth' });
-                
-                // Recarregar a lista de links gerados
-                loadGeneratedLinks();
-                
-                Toast.show('Link gerado com sucesso!', 'success');
-            } else {
-                Toast.show(`Erro na API: ${response.error}`, 'error');
-            }
-        } catch (error) {
-            console.error('Erro ao gerar link:', error);
-            Toast.show(`Erro ao gerar link: ${error.message}`, 'error');
-        } finally {
-            Loading.hide();
-        }
-    }
-    
-    // Função auxiliar para buscar dados do cliente
-    async function getClientData(clientId) {
-        try {
-            const response = await apiRequest(`/api/client/${clientId}`);
-            return response.success ? response.client : null;
-        } catch (error) {
-            console.error('Erro ao buscar dados do cliente:', error);
-            return null;
-        }
-    }
-
-    generateClientLinkForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const formData = new FormData(generateClientLinkForm);
-        const clientUsername = formData.get('client_username');
-        const clientPassword = formData.get('client_password');
-        
-        if (!clientUsername || !clientPassword) {
-            Toast.show('Por favor, preencha todos os campos.', 'error');
-            return;
-        }
-        
-        try {
-            // Chama a API para criar o link do cliente
-            const response = await apiRequest('/api/create_client_link', {
-                method: 'POST',
-                body: JSON.stringify({
-                    client_username: clientUsername,
-                    client_password: clientPassword
-                })
-            });
-            
-            if (response.success) {
-                // Exibe o link gerado
-                generatedLinkInput.value = response.link_url;
-                generatedLinkContainer.classList.remove('hidden');
-                
-                // Recarregar a lista de links gerados
-                loadGeneratedLinks();
-                
-                Toast.show('Link gerado com sucesso!', 'success');
-                
-                // Scroll para mostrar o resultado
-                generatedLinkContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            } else {
-                Toast.show('Erro ao gerar link: ' + (response.message || 'Erro desconhecido'), 'error');
-            }
-        } catch (error) {
-            Toast.show('Erro ao gerar link: ' + error.message, 'error');
-        }
-    });
-
-    // Funcionalidade de copiar link
-    copyLinkBtn.addEventListener('click', async () => {
-        try {
-            await navigator.clipboard.writeText(generatedLinkInput.value);
-            Toast.show('Link copiado para a área de transferência!', 'success');
-            
-            // Feedback visual temporário
-            const originalText = copyLinkBtn.innerHTML;
-            copyLinkBtn.innerHTML = '<i class="fas fa-check"></i> Copiado!';
-            copyLinkBtn.style.backgroundColor = '#10b981';
-            
-            setTimeout(() => {
-                copyLinkBtn.innerHTML = originalText;
-                copyLinkBtn.style.backgroundColor = '';
-            }, 2000);
-        } catch (err) {
-            // Fallback para navegadores mais antigos
-            generatedLinkInput.select();
-            document.execCommand('copy');
-            Toast.show('Link copiado para a área de transferência!', 'success');
-        }
-    });
-
-    // --- Funcionalidade de Gerenciamento de Links Gerados ---
-    const refreshLinksBtn = document.getElementById('refresh-links-btn');
-    const generatedLinksContainer = document.getElementById('generated-links-container');
-    const noLinksMessage = document.getElementById('no-links-message');
-    const generatedLinksTbody = document.getElementById('generated-links-tbody');
-
-    // Função para carregar links gerados
-    async function loadGeneratedLinks() {
-        try {
-            console.log('Carregando links gerados...');
-            const data = await apiRequest('/api/generated_links');
-            console.log('Resposta da API:', data);
-            
-            if (data.success && data.links && data.links.length > 0) {
-                console.log('Links encontrados:', data.links.length);
-                displayGeneratedLinks(data.links);
-                generatedLinksContainer.classList.remove('hidden');
-                noLinksMessage.classList.add('hidden');
-            } else {
-                console.log('Nenhum link encontrado ou erro na resposta');
-                generatedLinksContainer.classList.add('hidden');
-                noLinksMessage.classList.remove('hidden');
-            }
-        } catch (error) {
-            console.error('Erro ao carregar links:', error);
-            Toast.show('Erro ao carregar links gerados.', 'error');
-        }
-    }
+    // --- Funcionalidade de Gerenciamento de Revendas ---
 
     // Função para carregar revendas no select
     async function loadResellersForSelect() {
@@ -559,47 +406,52 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
                 headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
             });
             const data = await response.json();
-            
+
             if (!response.ok) {
                 throw new Error(data.detail || 'Erro ao carregar revendas');
             }
-            
+
             // Limpar opções existentes
             resellerSelect.innerHTML = '<option value="" data-reseller-id="" data-user-id="">Todas as revendas</option>';
-            
-            // Adicionar opção destacando a conta logada (se soubermos o userId)
-            if (CURRENT_RESELLER && CURRENT_RESELLER.netplay_user_id) {
-                const myOpt = document.createElement('option');
-                myOpt.value = CURRENT_RESELLER.netplay_user_id;
-                myOpt.dataset.userId = CURRENT_RESELLER.netplay_user_id;
-                myOpt.textContent = CURRENT_RESELLER.username || 'Minha revenda';
-                resellerSelect.appendChild(myOpt);
-            }
-            
-            // Adicionar opções das revendas
+
+            // Criar um Set para rastrear user_ids já adicionados (evitar duplicatas)
+            const addedUserIds = new Set();
+
+            // Adicionar opções das revendas do banco de dados
             if (data.resellers && data.resellers.length > 0) {
                 data.resellers.forEach(reseller => {
+                    // Verificar se já foi adicionado
+                    const userId = reseller.netplay_user_id;
+                    if (userId && addedUserIds.has(userId)) {
+                        return; // Pular duplicatas
+                    }
+
                     const option = document.createElement('option');
                     option.value = reseller.id; // compatibilidade
                     option.dataset.resellerId = reseller.id;
-                    if (reseller.netplay_user_id) option.dataset.userId = reseller.netplay_user_id;
+                    if (userId) {
+                        option.dataset.userId = userId;
+                        addedUserIds.add(userId); // Marcar como adicionado
+                    }
                     option.textContent = reseller.email || reseller.username || reseller.netplay_username || `Revenda ${reseller.id}`;
                     resellerSelect.appendChild(option);
                 });
                 console.log(`${data.resellers.length} revendas carregadas no select`);
+
                 // Após carregar revendas locais, também carregar user_ids do NetPlay e mesclar evitando duplicados
                 try {
                     const resp2 = await fetch('/api/admin/netplay_user_ids', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
                     const data2 = await resp2.json();
                     if (!resp2.ok) throw new Error(data2.detail || 'Erro ao obter user_ids');
-                    const existingUserIds = new Set(Array.from(resellerSelect.options).map(opt => opt.dataset.userId).filter(Boolean));
+
                     (data2.user_ids || []).forEach(uid => {
-                        if (!existingUserIds.has(uid)) {
+                        if (!addedUserIds.has(uid)) {
                             const option = document.createElement('option');
                             option.value = uid;
                             option.dataset.userId = uid;
                             option.textContent = uid;
                             resellerSelect.appendChild(option);
+                            addedUserIds.add(uid);
                         }
                     });
                     console.log('Merge de user_ids do NetPlay concluído');
@@ -613,11 +465,14 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
                     const data2 = await resp2.json();
                     if (!resp2.ok) throw new Error(data2.detail || 'Erro ao obter user_ids');
                     (data2.user_ids || []).forEach(uid => {
-                        const option = document.createElement('option');
-                        option.value = uid;
-                        option.dataset.userId = uid;
-                        option.textContent = uid;
-                        resellerSelect.appendChild(option);
+                        if (!addedUserIds.has(uid)) {
+                            const option = document.createElement('option');
+                            option.value = uid;
+                            option.dataset.userId = uid;
+                            option.textContent = uid;
+                            resellerSelect.appendChild(option);
+                            addedUserIds.add(uid);
+                        }
                     });
                     console.log(`${(data2.user_ids || []).length} user_ids carregados no select`);
                 } catch (e2) {
@@ -625,7 +480,7 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
                     Toast.show('Erro ao obter user_ids do NetPlay.', 'error');
                 }
             }
-            
+
             // Seleciona por padrão o userId da conta logada, se existir no select
             if (CURRENT_RESELLER && CURRENT_RESELLER.netplay_user_id) {
                 const idx = Array.from(resellerSelect.options).findIndex(opt => opt.dataset.userId === String(CURRENT_RESELLER.netplay_user_id));
@@ -633,102 +488,13 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
                     resellerSelect.selectedIndex = idx;
                 }
             }
-            
+
             // Dispara a busca com o filtro padrão (userId do login)
-            performSearch();
+            // IMPORTANTE: Aguardar um pouco para garantir que o select foi atualizado
+            setTimeout(() => performSearch(), 100);
         } catch (e) {
             console.error('Erro ao carregar revendas:', e);
             Toast.show(e.message || 'Erro ao carregar revendas', 'error');
-        }
-    }
-
-    // Função para exibir links na tabela
-    function displayGeneratedLinks(links) {
-        generatedLinksTbody.innerHTML = '';
-        
-        links.forEach(link => {
-            const row = document.createElement('tr');
-            const createdDate = new Date(link.created_at).toLocaleDateString('pt-BR');
-            const lastAccess = link.last_access ? new Date(link.last_access).toLocaleDateString('pt-BR') : 'Nunca';
-            const status = link.is_active ? 'Ativo' : 'Inativo';
-            const statusClass = link.is_active ? 'status-active' : 'status-inactive';
-            
-            row.innerHTML = `
-                <td>${link.client_username}</td>
-                <td>${createdDate}</td>
-                <td>${lastAccess}</td>
-                <td><span class="status-badge ${statusClass}">${status}</span></td>
-                <td>
-                    <div class="table-actions">
-                        <button class="btn-table btn-copy-link" data-link="${link.link_url}" title="Copiar Link">
-                            <i class="fas fa-copy"></i>
-                        </button>
-                        <button class="btn-table btn-delete-link" data-link-id="${link.id}" title="Excluir Link">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </td>
-            `;
-            
-            generatedLinksTbody.appendChild(row);
-        });
-        
-        // Adicionar event listeners para os botões da tabela
-        addTableEventListeners();
-    }
-
-    // Função para adicionar event listeners aos botões da tabela
-    function addTableEventListeners() {
-        // Botões de copiar link
-        document.querySelectorAll('.btn-copy-link').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const linkUrl = e.currentTarget.dataset.link;
-                try {
-                    await navigator.clipboard.writeText(linkUrl);
-                    Toast.show('Link copiado para a área de transferência!', 'success');
-                } catch (error) {
-                    // Fallback para navegadores mais antigos
-                    const textArea = document.createElement('textarea');
-                    textArea.value = linkUrl;
-                    document.body.appendChild(textArea);
-                    textArea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                    Toast.show('Link copiado para a área de transferência!', 'success');
-                }
-            });
-        });
-        
-        // Botões de excluir link
-        document.querySelectorAll('.btn-delete-link').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const linkId = e.currentTarget.dataset.linkId;
-                if (confirm('Tem certeza que deseja excluir este link?')) {
-                    await deleteGeneratedLink(linkId);
-                }
-            });
-        });
-    }
-
-    // Função para excluir um link gerado
-    async function deleteGeneratedLink(linkId) {
-        try {
-            Loading.show();
-            const data = await apiRequest(`/api/generated_links/${linkId}`, {
-                method: 'DELETE'
-            });
-            
-            if (data.success) {
-                Toast.show('Link excluído com sucesso!', 'success');
-                loadGeneratedLinks(); // Recarregar a lista
-            } else {
-                Toast.show(data.error || 'Erro ao excluir link.', 'error');
-            }
-        } catch (error) {
-            console.error('Erro ao excluir link:', error);
-            Toast.show('Erro ao excluir link.', 'error');
-        } finally {
-            Loading.hide();
         }
     }
 
@@ -737,22 +503,24 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
         try {
             console.log('loadResellerFixedLink chamada');
             console.log('CURRENT_RESELLER:', CURRENT_RESELLER);
-            
+
             const resellerFixedLinkInput = document.getElementById('reseller-fixed-link');
             const copyResellerLinkBtn = document.getElementById('copy-reseller-link-btn');
-            
+
             if (!resellerFixedLinkInput) {
                 console.error('Elemento reseller-fixed-link não encontrado');
                 return;
             }
-            
+
             if (CURRENT_RESELLER && CURRENT_RESELLER.id) {
                 const baseUrl = window.location.origin;
                 const fixedLink = `${baseUrl}/r${CURRENT_RESELLER.id}/client`;
-                
+
                 resellerFixedLinkInput.value = fixedLink;
-                copyResellerLinkBtn.disabled = false;
-                
+                if (copyResellerLinkBtn) {
+                    copyResellerLinkBtn.disabled = false;
+                }
+
                 console.log('Link fixo do revendedor carregado:', fixedLink);
             } else {
                 console.log('CURRENT_RESELLER não definido ou sem ID');
@@ -762,25 +530,23 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
             console.error('Erro ao carregar link fixo:', error);
         }
     }
-    
-    // Event listener para o botão de atualizar links
-    if (refreshLinksBtn) {
-        refreshLinksBtn.addEventListener('click', loadGeneratedLinks);
-    }
-    
+
     // Event listener para copiar link fixo do revendedor
-    document.getElementById('copy-reseller-link-btn').addEventListener('click', async () => {
-        const resellerFixedLinkInput = document.getElementById('reseller-fixed-link');
-        try {
-            await navigator.clipboard.writeText(resellerFixedLinkInput.value);
-            Toast.show('Link fixo copiado para a área de transferência!', 'success');
-        } catch (error) {
-            // Fallback para navegadores mais antigos
-            resellerFixedLinkInput.select();
-            document.execCommand('copy');
-            Toast.show('Link fixo copiado!', 'success');
-        }
-    });
+    const copyResellerLinkBtn = document.getElementById('copy-reseller-link-btn');
+    if (copyResellerLinkBtn) {
+        copyResellerLinkBtn.addEventListener('click', async () => {
+            const resellerFixedLinkInput = document.getElementById('reseller-fixed-link');
+            try {
+                await navigator.clipboard.writeText(resellerFixedLinkInput.value);
+                Toast.show('Link fixo copiado para a área de transferência!', 'success');
+            } catch (error) {
+                // Fallback para navegadores mais antigos
+                resellerFixedLinkInput.select();
+                document.execCommand('copy');
+                Toast.show('Link fixo copiado!', 'success');
+            }
+        });
+    }
 
     // Carregar links quando a página for carregada
     // Remover estas linhas:
@@ -790,7 +556,7 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
 
     // Paginação da tabela de clientes
     let customerCurrentPage = 1;
-    let customerPageSize = 15; // default
+    let customerPageSize = 100; // default - corresponde ao valor selecionado no HTML
     let customerFilteredData = [];
 
     const pageSizeSelect = document.getElementById('customer-page-size');
@@ -799,27 +565,27 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
     const pageInfo = document.getElementById('customer-page-info');
 
     function updatePaginationControls() {
-      const totalItems = customerFilteredData.length;
-      const totalPages = customerPageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / customerPageSize));
-      pageInfo.textContent = customerPageSize === 'all'
-        ? `Exibindo todos (${totalItems})`
-        : `Página ${customerCurrentPage} de ${totalPages} (Total: ${totalItems})`;
-      btnPrevPage.disabled = customerPageSize === 'all' || customerCurrentPage <= 1;
-      btnNextPage.disabled = customerPageSize === 'all' || customerCurrentPage >= totalPages;
+        const totalItems = customerFilteredData.length;
+        const totalPages = customerPageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / customerPageSize));
+        pageInfo.textContent = customerPageSize === 'all'
+            ? `Exibindo todos (${totalItems})`
+            : `Página ${customerCurrentPage} de ${totalPages} (Total: ${totalItems})`;
+        btnPrevPage.disabled = customerPageSize === 'all' || customerCurrentPage <= 1;
+        btnNextPage.disabled = customerPageSize === 'all' || customerCurrentPage >= totalPages;
     }
 
     function renderCustomerTablePage() {
-      customerTableBody.innerHTML = '';
-      let itemsToRender = customerFilteredData;
-      if (customerPageSize !== 'all') {
-        const start = (customerCurrentPage - 1) * customerPageSize;
-        const end = start + customerPageSize;
-        itemsToRender = customerFilteredData.slice(start, end);
-      }
-      itemsToRender.forEach(client => {
-        const row = customerTableBody.insertRow();
-        const serverName = client.server || 'N/A';
-        row.innerHTML = `
+        customerTableBody.innerHTML = '';
+        let itemsToRender = customerFilteredData;
+        if (customerPageSize !== 'all') {
+            const start = (customerCurrentPage - 1) * customerPageSize;
+            const end = start + customerPageSize;
+            itemsToRender = customerFilteredData.slice(start, end);
+        }
+        itemsToRender.forEach(client => {
+            const row = customerTableBody.insertRow();
+            const serverName = client.server || 'N/A';
+            row.innerHTML = `
           <td><input type="checkbox" class="customer-checkbox" value="${client.id}"></td>
           <td>${client.username || 'N/A'}</td>
           <td>${client.name || 'N/A'}</td>
@@ -827,42 +593,151 @@ resellerSelect && resellerSelect.addEventListener('change', performSearch);
           <td>
             <button class="btn-secondary small-button view-details-btn" data-id="${client.id}"><i class="fas fa-eye"></i> Ver Mais</button>
             <button class="btn-action small-button migrate-single-btn" data-id="${client.id}"><i class="fas fa-exchange-alt"></i> Migrar</button>
-            <button class="btn-primary small-button generate-link-btn" data-username="${client.username}" data-id="${client.id}"><i class="fas fa-link"></i> Gerar Link</button>
           </td>
         `;
-      });
-      updatePaginationControls();
-      updateBatchMigrateButtonState();
+        });
+        updatePaginationControls();
+        updateBatchMigrateButtonState();
     }
 
     // Handlers
     if (pageSizeSelect) {
-      pageSizeSelect.addEventListener('change', () => {
-        const val = pageSizeSelect.value;
-        customerPageSize = val === 'all' ? 'all' : parseInt(val, 10);
-        customerCurrentPage = 1;
-        renderCustomerTablePage();
-      });
+        pageSizeSelect.addEventListener('change', () => {
+            const val = pageSizeSelect.value;
+            customerPageSize = val === 'all' ? 'all' : parseInt(val, 10);
+            customerCurrentPage = 1;
+            renderCustomerTablePage();
+        });
     }
     if (btnPrevPage) {
-      btnPrevPage.addEventListener('click', () => {
-        if (customerPageSize !== 'all' && customerCurrentPage > 1) {
-          customerCurrentPage -= 1;
-          renderCustomerTablePage();
-        }
-      });
+        btnPrevPage.addEventListener('click', () => {
+            if (customerPageSize !== 'all' && customerCurrentPage > 1) {
+                customerCurrentPage -= 1;
+                renderCustomerTablePage();
+            }
+        });
     }
     if (btnNextPage) {
-      btnNextPage.addEventListener('click', () => {
-        if (customerPageSize !== 'all') {
-          const totalPages = Math.max(1, Math.ceil(customerFilteredData.length / customerPageSize));
-          if (customerCurrentPage < totalPages) {
-            customerCurrentPage += 1;
-            renderCustomerTablePage();
-          }
-        }
-      });
+        btnNextPage.addEventListener('click', () => {
+            if (customerPageSize !== 'all') {
+                const totalPages = Math.max(1, Math.ceil(customerFilteredData.length / customerPageSize));
+                if (customerCurrentPage < totalPages) {
+                    customerCurrentPage += 1;
+                    renderCustomerTablePage();
+                }
+            }
+        });
     }
+
+    // ========================================
+    // Barra de Status dos Servidores
+    // ========================================
+    const serversIndicators = document.getElementById('servers-indicators');
+    const refreshServersStatusBtn = document.getElementById('refresh-servers-status');
+    let serversStatusInterval;
+
+    const SERVERS_LIST = [
+        'SEVEN', 'GALAXY', 'LUNAR', 'SPEED', 'OLYMPUS',
+        'EXPLOSION', 'TITA', 'SKY', 'SOLAR', 'URANO',
+        'ATENA', 'ANDROMEDA', 'HADES', 'VENUS', 'FIRE'
+    ];
+
+    let lastServersStatus = {}; // Armazena o último status conhecido
+    let lastCheckTime = null; // Armazena o horário da última verificação
+
+    async function loadServersStatus() {
+        if (!serversIndicators) return;
+
+        try {
+            const response = await fetch('/api/servers/status');
+            const data = await response.json();
+
+            if (data.success && data.servers) {
+                lastServersStatus = data.servers;
+                lastCheckTime = new Date();
+                renderServersIndicators(lastServersStatus, false);
+            }
+        } catch (error) {
+            console.error('Erro ao carregar status dos servidores:', error);
+        }
+    }
+
+    function renderServersIndicators(serversStatus, isChecking = false) {
+        if (!serversIndicators) return;
+
+        serversIndicators.innerHTML = '';
+
+        SERVERS_LIST.forEach(serverName => {
+            const indicator = document.createElement('div');
+            indicator.className = 'server-indicator';
+
+            const dot = document.createElement('div');
+            dot.className = 'server-indicator-dot';
+
+            if (isChecking) {
+                dot.classList.add('checking');
+            } else {
+                const status = serversStatus[serverName];
+                if (status && status.online) {
+                    dot.classList.add('online');
+                } else {
+                    dot.classList.add('offline');
+                }
+            }
+
+            const name = document.createElement('span');
+            name.className = 'server-indicator-name';
+            name.textContent = serverName;
+
+            indicator.appendChild(dot);
+            indicator.appendChild(name);
+            serversIndicators.appendChild(indicator);
+        });
+
+        // Adicionar timestamp da última verificação
+        if (lastCheckTime) {
+            const timestamp = document.createElement('div');
+            timestamp.className = 'servers-last-check';
+            const timeString = lastCheckTime.toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            timestamp.innerHTML = `<i class="fas fa-clock"></i> Última verificação: ${timeString}`;
+            serversIndicators.appendChild(timestamp);
+        }
+    }
+
+    // Carregar status ao fazer login
+    const originalLoadInitialData = loadInitialData;
+    loadInitialData = async function () {
+        await originalLoadInitialData();
+        await loadServersStatus();
+
+        // Atualizar a cada 30 segundos
+        if (serversStatusInterval) clearInterval(serversStatusInterval);
+        serversStatusInterval = setInterval(loadServersStatus, 30000);
+    };
+
+    // Botão de refresh manual
+    if (refreshServersStatusBtn) {
+        refreshServersStatusBtn.addEventListener('click', async () => {
+            const icon = refreshServersStatusBtn.querySelector('i');
+            icon.classList.add('fa-spin');
+            await loadServersStatus();
+            setTimeout(() => icon.classList.remove('fa-spin'), 1000);
+        });
+    }
+
+    // Limpar interval ao fazer logout
+    const originalShowLogin = showLogin;
+    showLogin = function () {
+        originalShowLogin();
+        if (serversStatusInterval) {
+            clearInterval(serversStatusInterval);
+            serversStatusInterval = null;
+        }
+    };
 
     // --- Inicialização ---
     showLogin();

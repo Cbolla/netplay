@@ -336,23 +336,46 @@ async def check_servers_status():
         {"name": "FIRE", "url": "http://fire.netpl4y.com"}
     ]
     
-    results = {}
+    async def check_server(client, server, retry=False):
+        """Verifica um servidor individual"""
+        try:
+            response = await client.get(server["url"])
+            return server["name"], {
+                "online": response.status_code < 500,
+                "status_code": response.status_code,
+                "url": server["url"],
+                "verified": retry  # Indica se foi verificado duas vezes
+            }
+        except Exception as e:
+            return server["name"], {
+                "online": False,
+                "error": str(e),
+                "url": server["url"],
+                "verified": retry
+            }
     
-    async with httpx.AsyncClient(timeout=1.5) as client:
-        for server in servers:
-            try:
-                response = await client.get(server["url"])
-                results[server["name"]] = {
-                    "online": response.status_code < 500,
-                    "status_code": response.status_code,
-                    "url": server["url"]
-                }
-            except Exception as e:
-                results[server["name"]] = {
-                    "online": False,
-                    "error": str(e),
-                    "url": server["url"]
-                }
+    # Primeira verificação - todos os servidores em paralelo
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        tasks = [check_server(client, server) for server in servers]
+        results_list = await asyncio.gather(*tasks)
+    
+    # Converter lista de resultados para dicionário
+    results = {name: status for name, status in results_list}
+    
+    # Segunda verificação - apenas para servidores offline
+    offline_servers = [
+        server for server in servers 
+        if not results[server["name"]]["online"]
+    ]
+    
+    if offline_servers:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            retry_tasks = [check_server(client, server, retry=True) for server in offline_servers]
+            retry_results = await asyncio.gather(*retry_tasks)
+        
+        # Atualizar resultados com a segunda verificação
+        for name, status in retry_results:
+            results[name] = status
     
     return {"success": True, "servers": results}
 
