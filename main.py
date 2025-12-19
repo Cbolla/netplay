@@ -49,6 +49,46 @@ CURRENT_RESELLER = None
 ALL_NETPLAY_PACKAGES = []
 NETPLAY_HEADERS = {"accept": "application/json", "user-agent": "Mozilla/5.0", "origin": "https://netplay.mplll.com", "referer": "https://netplay.mplll.com/"}
 
+# --- Configuração MaxPlayer ---
+MAXPLAYER_API_BASE_URL = "https://api.maxplayer.tv/v3/api/panel"
+MAXPLAYER_AUTH_TOKEN = None
+MAXPLAYER_CREDENTIALS = {
+    "email": "futuro.noob@icloud.com",
+    "password": "William2025@"
+}
+MAXPLAYER_HEADERS = {
+    "accept": "application/json, text/plain, */*",
+    "user-agent": "Mozilla/5.0",
+    "origin": "https://my.maxplayer.tv",
+    "referer": "https://my.maxplayer.tv/"
+}
+
+# Mapa de Servidores NetPlay → MaxPlayer domain_id
+SERVER_MAP = {
+    "☀️ NETPLAY SOLAR ☀️": "1750385133185114283",
+    "☄️ NETPLAY ANDRÔMEDA ☄️": "1750385543431130630",
+    "⚡ NETPLAY SPEED ⚡": "1750384873990823788",
+    "🌑 NETPLAY LUNAR 🌑": "1753657859890202256",
+    "🌠 NETPLAY FLASH 🌠": "1756345548755066123",
+    "🌬️ NETPLAY VÊNUS 🌬️": "1750385433321950245",
+    "🏛️ NETPLAY ATENA 🏛️": "1750385235476264855",
+    "👺 NETPLAY TITÃ 👺": "1750385578271894993",
+    "💎 NETPLAY HADES 💎": "1750385472254248136",
+    "💣 EXPLOSION 💣": "1755362642846269320",
+    "📡 NETPLAY SKY 📡": "1750385204630190352",
+    "🔥 NETPLAY FIRE 🔥": "1756378841114454295",
+    "🛸 NETPLAY GALAXY 🛸": "1750385171559926175",
+    "🧿 NETPLAY SEVEN 🧿": "1750384954579088880",
+    "🪐 NETPLAY URANO 🪐": "1750385502428005340",
+    # Servidores adicionais do MaxPlayer
+    "ALPSYNC": "1764111505708068572",
+    "StarPlay4": "1764334750403735279",
+    "⭐️ StarPlay 1 ⭐️": "1762974282561465612",
+    "⭐️ StarPlay 2 ⭐️": "1762974308988184556",
+    "⭐️ StarPlay 3 ⭐️": "1762974556593364213",
+    "🟣🟣🟣🟣": "1765801295763130892"
+}
+
 # Credenciais administrativas (configure com suas credenciais reais)
 # Você pode configurar através de variáveis de ambiente ou diretamente aqui
 # Carrega variáveis do arquivo .env se existir
@@ -67,9 +107,9 @@ if NETPLAY_USERNAME == "seu_usuario_admin" or NETPLAY_PASSWORD == "sua_senha_adm
 # --- Modelos Pydantic ---
 class LoginRequest(BaseModel): username: str; password: str
 class CustomerInfo(BaseModel): id: str; username: str; package_name: str
-class BatchMigrateRequest(BaseModel): customers: list[CustomerInfo]; server_id: str; server_name: str
+class BatchMigrateRequest(BaseModel): customers: list[CustomerInfo]; server_id: str; server_name: str; include_maxplayer: bool = False
 class ClientLoginRequest(BaseModel): username: str; password: str
-class ClientMigrateRequest(BaseModel): server_id: str; password: str = None; client_username: str = None
+class ClientMigrateRequest(BaseModel): server_id: str; password: str = None; client_username: str = None; include_maxplayer: bool = False
 class CreateClientLinkRequest(BaseModel): client_username: str; client_password: str
 class ClientTokenLoginRequest(BaseModel): token: str
 class ClientAuthRequest(BaseModel): 
@@ -82,6 +122,7 @@ class ClientAuthRequest(BaseModel):
 class AdminLoginRequest(BaseModel): username: str; password: str
 class BlockResellerRequest(BaseModel): reseller_ids: list[int]; reason: str = None
 class UnblockResellerRequest(BaseModel): reseller_id: int
+class SaveMaxPlayerCredentialsRequest(BaseModel): email: str; password: str
 
 # Função para detectar URL base (ngrok ou localhost)
 async def get_base_url(request: Request) -> str:
@@ -131,6 +172,138 @@ def normalize_string(s: str) -> str:
     # Remove todos os outros caracteres não alfanuméricos
     s = re.sub(r'[^a-z0-9]', '', s)
     return s
+
+# --- Funções MaxPlayer ---
+async def login_maxplayer(client: httpx.AsyncClient, credentials: dict = None):
+    """Autentica na API MaxPlayer e armazena o token globalmente"""
+    global MAXPLAYER_AUTH_TOKEN
+    if MAXPLAYER_AUTH_TOKEN:
+        return  # Já autenticado
+    
+    # Usar credenciais fornecidas ou fallback para as hardcoded
+    creds = credentials if credentials else MAXPLAYER_CREDENTIALS
+    
+    headers = {**MAXPLAYER_HEADERS, "content-type": "application/json"}
+    try:
+        resp = await client.post(
+            f"{MAXPLAYER_API_BASE_URL}/login",
+            headers=headers,
+            json=creds
+        )
+        resp.raise_for_status()
+        token = resp.json().get("token")
+        if not token:
+            raise Exception("Token da Maxplayer não encontrado.")
+        MAXPLAYER_AUTH_TOKEN = token
+        print(f"✅ Autenticado no MaxPlayer com sucesso (email: {creds.get('email')})")
+    except Exception as e:
+        print(f"❌ Erro ao autenticar no MaxPlayer: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Não foi possível autenticar na Maxplayer: {e}"
+        )
+
+async def migrate_customer_on_maxplayer(
+    username: str,
+    server_name: str,
+    client: httpx.AsyncClient
+) -> str:
+    """Migra um cliente no MaxPlayer para um novo servidor"""
+    if not MAXPLAYER_AUTH_TOKEN:
+        raise Exception("Autenticação da Maxplayer perdida.")
+    
+    headers = {**MAXPLAYER_HEADERS, "Authorization": f"Bearer {MAXPLAYER_AUTH_TOKEN}"}
+    
+    try:
+        # 1. Buscar cliente
+        params = {"search": username, "limit": 1, "agent": "false"}
+        resp_search = await client.get(
+            f"{MAXPLAYER_API_BASE_URL}/view/reseller/search-users",
+            headers=headers,
+            params=params
+        )
+        resp_search.raise_for_status()
+        users = resp_search.json().get("users", [])
+        if not users:
+            return "Não encontrado"
+        
+        # 2. Obter detalhes da lista
+        customer_id = users[0].get("id")
+        resp_details = await client.get(
+            f"{MAXPLAYER_API_BASE_URL}/view/reseller/user/{customer_id}",
+            headers=headers
+        )
+        resp_details.raise_for_status()
+        lists = resp_details.json().get("lists", [])
+        if not lists:
+            return "Erro: Nenhuma lista para editar."
+        
+        # 3. Atualizar servidor
+        list_info = lists[0]
+        iptv_info = list_info.get("iptv_info", {})
+        new_domain_id = SERVER_MAP.get(server_name)
+        if not new_domain_id:
+            return f"Erro: Servidor '{server_name}' não mapeado."
+        
+        payload = {
+            "list_id": list_info.get("id"),
+            "domain_id": new_domain_id,
+            "new_list_name": list_info.get("name"),
+            "iptv_username": iptv_info.get("username"),
+            "iptv_password": iptv_info.get("password"),
+        }
+        if not all(payload.values()):
+            return "Erro: Dados da lista incompletos."
+        
+        resp_edit = await client.post(
+            f"{MAXPLAYER_API_BASE_URL}/actions/reseller/edit-list",
+            headers=headers,
+            json=payload
+        )
+        resp_edit.raise_for_status()
+        success = resp_edit.json().get("success")
+        if success:
+            print(f"✅ MaxPlayer: Cliente '{username}' migrado para {server_name}")
+            
+            # Verificar servidor atual após migração
+            try:
+                resp_verify = await client.get(
+                    f"{MAXPLAYER_API_BASE_URL}/view/reseller/user/{customer_id}",
+                    headers=headers
+                )
+                resp_verify.raise_for_status()
+                verify_lists = resp_verify.json().get("lists", [])
+                
+                if verify_lists:
+                    current_domain_id = verify_lists[0].get("domain_id")
+                    # Buscar nome do servidor pelo domain_id
+                    current_server_name = None
+                    for srv_name, srv_id in SERVER_MAP.items():
+                        if srv_id == current_domain_id:
+                            current_server_name = srv_name
+                            break
+                    
+                    if current_server_name:
+                        print(f"📍 MaxPlayer: Servidor CONFIRMADO do cliente '{username}': {current_server_name} (domain_id: {current_domain_id})")
+                        if current_domain_id == new_domain_id:
+                            print(f"✅ VERIFICAÇÃO: Migração confirmada! Cliente está no servidor correto.")
+                        else:
+                            print(f"⚠️  VERIFICAÇÃO: ATENÇÃO! Cliente NÃO está no servidor esperado!")
+                            print(f"   Esperado: {server_name} ({new_domain_id})")
+                            print(f"   Atual: {current_server_name} ({current_domain_id})")
+                    else:
+                        print(f"📍 MaxPlayer: Cliente '{username}' está no domain_id: {current_domain_id}")
+            except Exception as verify_error:
+                print(f"⚠️  Não foi possível verificar servidor atual: {verify_error}")
+            
+            print(f"📍 MaxPlayer: Servidor esperado: {server_name} (domain_id: {new_domain_id})")
+            return "Migrado com sucesso"
+        else:
+            return "Falha na API"
+    
+    except Exception as e:
+        print(f"❌ Erro ao migrar '{username}' na Maxplayer: {e}")
+        return "Erro na migração"
 
 # --- Rotas do Backend ---
 @app.get("/", response_class=HTMLResponse)
@@ -289,6 +462,22 @@ async def login(request: LoginRequest, req: Request):
         raise HTTPException(status_code=500, detail="Erro de conexão com a Netplay.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro no login: {e}")
+
+@app.post("/api/save_maxplayer_credentials")
+async def save_maxplayer_credentials(request: SaveMaxPlayerCredentialsRequest):
+    """Salva as credenciais MaxPlayer do usuário logado"""
+    if not CURRENT_RESELLER or not CURRENT_RESELLER.get("id"):
+        raise HTTPException(status_code=401, detail="Usuário não autenticado.")
+    
+    try:
+        db.update_reseller_maxplayer_credentials(
+            CURRENT_RESELLER["id"],
+            request.email,
+            request.password
+        )
+        return {"success": True, "message": "Credenciais MaxPlayer salvas com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar credenciais: {e}")
 
 @app.get("/api/servidores_e_planos")
 async def get_servidores_e_planos():
@@ -1172,7 +1361,103 @@ async def client_migrate(request: ClientMigrateRequest, token: str = None, netpl
         migration_response = requests.put(url, headers=headers, json=payload)
         migration_response.raise_for_status()
         
-        return {"success": True, "message": "Migração realizada com sucesso!"}
+        # Se incluir MaxPlayer, migrar também
+        maxplayer_result = None
+        if request.include_maxplayer:
+            print(f"🔄 [CLIENTE] Iniciando migração MaxPlayer para cliente '{client_username}'...")
+            
+            # Buscar credenciais MaxPlayer do revendedor
+            maxplayer_creds = None
+            if reseller_id:
+                print(f"🔍 [CLIENTE] Buscando credenciais MaxPlayer do reseller_id={reseller_id}")
+                maxplayer_creds = db.get_reseller_maxplayer_credentials(reseller_id)
+                print(f"🔍 [CLIENTE] Credenciais encontradas: {maxplayer_creds}")
+            
+            # Buscar nome do servidor
+            server_name = None
+            if hasattr(request, 'server_name') and request.server_name:
+                server_name = request.server_name
+            else:
+                for pkg in ALL_NETPLAY_PACKAGES:
+                    if pkg.get("server_id") == request.server_id:
+                        server_name = pkg.get("server_name", "")
+                        break
+            
+            # Se não encontrou, tentar recarregar a lista de servidores
+            if not server_name:
+                print(f"⚠️  [CLIENTE] Servidor não encontrado inicialmente (ID: {request.server_id}). Recarregando lista...")
+                try:
+                    # Usar token disponível (admin_token já foi definido antes)
+                    if not admin_token:
+                         print(f"❌ [CLIENTE] Sem token administrativo para recarregar servidores")
+                    else:
+                        reload_headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {admin_token}"}
+                        response = requests.get(f"{NETPLAY_API_BASE_URL}/servers", headers=reload_headers)
+                        if response.ok:
+                            data = response.json()
+                            servers = data.get("data", [])
+                            print(f"🔄 [CLIENTE] Lista recarregada com {len(servers)} servidores")
+                            
+                            # Atualizar globalmente e tentar buscar novamente
+                            updated_packages = []
+                            for s in servers:
+                                s_id = s.get("id")
+                                s_name = s.get("name")
+                                # Verificar se é o servidor procurado
+                                if str(s_id) == str(request.server_id):
+                                    server_name = s_name
+                                    print(f"✅ [CLIENTE] Servidor encontrado após recarregar: {server_name}")
+                                
+                                if s.get("plans"):
+                                    for p in s.get("plans"):
+                                        updated_packages.append({
+                                            "id": p.get("id"),
+                                            "name": p.get("name"),
+                                            "server_id": s_id,
+                                            "server_name": s_name
+                                        })
+                            
+                            if updated_packages:
+                                 ALL_NETPLAY_PACKAGES = updated_packages
+                        else:
+                            print(f"❌ [CLIENTE] Falha ao recarregar servidores: {response.status_code}")
+                except Exception as e:
+                    print(f"❌ [CLIENTE] Erro ao recarregar servidores: {e}")
+            
+            print(f"🔍 [CLIENTE] Nome do servidor encontrado: '{server_name}'")
+            
+            if server_name and maxplayer_creds:
+                try:
+                    async with httpx.AsyncClient() as mp_client:
+                        # Login no MaxPlayer
+                        print(f"✅ [CLIENTE] Usando credenciais MaxPlayer: {maxplayer_creds['email']}")
+                        await login_maxplayer(mp_client, maxplayer_creds)
+                        
+                        # Migrar no MaxPlayer
+                        print(f"🔄 [CLIENTE] Chamando migrate_customer_on_maxplayer...")
+                        maxplayer_result = await migrate_customer_on_maxplayer(
+                            client_username,
+                            server_name,
+                            mp_client
+                        )
+                        print(f"📊 [CLIENTE] Resultado MaxPlayer: {maxplayer_result}")
+                except Exception as e:
+                    print(f"❌ [CLIENTE] Erro EXCEPCIONAL na migração MaxPlayer: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    maxplayer_result = f"Erro técnico: {e}"
+            elif not server_name:
+                print(f"⚠️  [CLIENTE] Nome do servidor não encontrado para ID: {request.server_id}")
+                maxplayer_result = "Nome do servidor não encontrado"
+            elif not maxplayer_creds:
+                print(f"⚠️  [CLIENTE] Revendedor não tem credenciais MaxPlayer configuradas")
+                maxplayer_result = "Revendedor sem credenciais MaxPlayer"
+        
+        result = {"success": True, "message": "Migração realizada com sucesso!"}
+        if maxplayer_result:
+            result["maxplayer_status"] = maxplayer_result
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1183,6 +1468,29 @@ async def batch_migrar_clientes(request: BatchMigrateRequest):
     if not AUTH_TOKEN: raise HTTPException(status_code=401, detail="Não autenticado na Netplay.")
     try:
         async with httpx.AsyncClient() as client:
+            # Se incluir MaxPlayer, fazer login
+            if request.include_maxplayer:
+                print(f"🔄 Iniciando autenticação no MaxPlayer...")
+                
+                # Buscar credenciais MaxPlayer do usuário logado
+                print(f"🔍 DEBUG: CURRENT_RESELLER = {CURRENT_RESELLER}")
+                
+                maxplayer_creds = None
+                if CURRENT_RESELLER and CURRENT_RESELLER.get("id"):
+                    print(f"🔍 DEBUG: Buscando credenciais MaxPlayer para reseller_id={CURRENT_RESELLER['id']}")
+                    maxplayer_creds = db.get_reseller_maxplayer_credentials(CURRENT_RESELLER["id"])
+                    print(f"🔍 DEBUG: Credenciais encontradas: {maxplayer_creds}")
+                else:
+                    print(f"⚠️  DEBUG: CURRENT_RESELLER não está definido ou não tem ID")
+                
+                if maxplayer_creds:
+                    print(f"✅ Usando credenciais MaxPlayer do usuário: {maxplayer_creds['email']}")
+                    await login_maxplayer(client, maxplayer_creds)
+                else:
+                    print(f"⚠️  Usuário não tem credenciais MaxPlayer salvas")
+                    print(f"📧 Usando credenciais padrão: {MAXPLAYER_CREDENTIALS.get('email')}")
+                    await login_maxplayer(client)
+            
             tasks = [process_customer_migration(c, request, client) for c in request.customers]
             results = await asyncio.gather(*tasks)
     except Exception as e:
@@ -1432,7 +1740,11 @@ def handle_netplay_api_error(e):
         raise HTTPException(status_code=500, detail=f"Erro inesperado: {str(e)}")
 
 async def process_customer_migration(customer: CustomerInfo, request: BatchMigrateRequest, client: httpx.AsyncClient):
-    result = {"username": customer.username, "migration_status": "Pendente"}
+    result = {
+        "username": customer.username,
+        "migration_status": "Pendente",
+        "maxplayer_status": "Não solicitado"  # Status padrão
+    }
     headers = {**NETPLAY_HEADERS, "authorization": f"Bearer {AUTH_TOKEN}", "content-type": "application/json"}
     
     try:
@@ -1455,14 +1767,59 @@ async def process_customer_migration(customer: CustomerInfo, request: BatchMigra
         resp_netplay = await client.put(url, headers=headers, json=payload, timeout=30.0)
         resp_netplay.raise_for_status()
         result["migration_status"] = "Migrado com sucesso"
+        
+        # Se incluir MaxPlayer, migrar também
+        if request.include_maxplayer:
+            print(f"🔄 Migrando '{customer.username}' no MaxPlayer...")
+            result["maxplayer_status"] = await migrate_customer_on_maxplayer(
+                customer.username,
+                request.server_name,
+                client
+            )
+        
     except httpx.HTTPStatusError as e:
         error = e.response.json().get("message", e.response.text)
         result["migration_status"] = f"Falha: {error}"
+        if request.include_maxplayer:
+            result["maxplayer_status"] = "Não executado"
     except Exception as e:
         result["migration_status"] = f"Erro: {e}"
+        if request.include_maxplayer:
+            result["maxplayer_status"] = "Não executado"
     return result
 
-# Configurações de produção
+# Endpoint público para status dos servidores
+@app.get("/api/servers/status")
+async def public_server_status():
+    """Retorna lista de servidores para o frontend verificar status"""
+    # Lista fixa de servidores para monitoramento
+    servers = [
+        {"id": "1750385133185114283", "name": "NETPLAY SOLAR", "url": "http://solar.netplay.tv"},
+        {"id": "1750385543431130630", "name": "NETPLAY ANDRÔMEDA", "url": "http://andromeda.netplay.tv"},
+        {"id": "1750384873990823788", "name": "NETPLAY SPEED", "url": "http://speed.netplay.tv"},
+        {"id": "1753657859890202256", "name": "NETPLAY LUNAR", "url": "http://lunar.netplay.tv"},
+        {"id": "1756345548755066123", "name": "NETPLAY FLASH", "url": "http://flash.netplay.tv"},
+        {"id": "1750385433321950245", "name": "NETPLAY VÊNUS", "url": "http://venus.netplay.tv"},
+        {"id": "1750385235476264855", "name": "NETPLAY ATENA", "url": "http://atena.netplay.tv"},
+        {"id": "1750385578271894993", "name": "NETPLAY TITÃ", "url": "http://tita.netplay.tv"},
+        {"id": "1750385472254248136", "name": "NETPLAY HADES", "url": "http://hades.netplay.tv"},
+        {"id": "1755362642846269320", "name": "EXPLOSION", "url": "http://explosion.netplay.tv"},
+        {"id": "1750385204630190352", "name": "NETPLAY SKY", "url": "http://sky.netplay.tv"},
+        {"id": "1756378841114454295", "name": "NETPLAY FIRE", "url": "http://fire.netplay.tv"},
+        {"id": "1750385171559926175", "name": "NETPLAY GALAXY", "url": "http://galaxy.netplay.tv"},
+        {"id": "1750384954579088880", "name": "NETPLAY SEVEN", "url": "http://seven.netplay.tv"},
+        {"id": "1750385502428005340", "name": "NETPLAY URANO", "url": "http://urano.netplay.tv"},
+        {"id": "1764111505708068572", "name": "ALPSYNC", "url": "http://alpsync.netplay.tv"},
+        {"id": "1764334750403735279", "name": "StarPlay4", "url": "http://starplay4.netplay.tv"},
+        {"id": "1762974282561465612", "name": "StarPlay1", "url": "http://starplay1.netplay.tv"},
+        {"id": "1762974308988184556", "name": "StarPlay2", "url": "http://starplay2.netplay.tv"},
+        {"id": "1762974556593364213", "name": "StarPlay3", "url": "http://starplay3.netplay.tv"},
+        {"id": "1765801295763130892", "name": "PURPLE", "url": "http://purple.netplay.tv"}
+    ]
+    
+    # Retorna apenas a lista, frontend fará o ping
+    return {"servers": servers, "client_side_check": True}
+
 if __name__ == "__main__":
     import uvicorn
     

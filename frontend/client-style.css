@@ -530,3 +530,80 @@ input[type="password"]:focus,
         font-size: 1.3rem;
     }
 }
+/* ========================================
+   Barra de Status dos Servidores
+   ======================================== */
+.servers-status-bar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+.status-bar-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    color: white;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.btn-refresh-mini {
+    margin-left: auto;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-refresh-mini:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.servers-indicators {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.server-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    padding: 0.4rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.3s;
+    font-weight: 500;
+    color: white;
+    white-space: nowrap;
+}
+
+.server-indicator-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.server-indicator-dot.online {
+    background-color: #48bb78;
+    box-shadow: 0 0 8px rgba(72, 187, 120, 0.6);
+}
+
+.server-indicator-dot.offline {
+    background-color: #f56565;
+    box-shadow: 0 0 8px rgba(245, 101, 101, 0.6);
+}
+
+.server-indicator-name {
+    font-size: 0.85rem;
+}

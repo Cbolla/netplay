@@ -48,6 +48,17 @@ class Database:
         except sqlite3.OperationalError:
             pass  # Coluna já existe
         
+        # Adicionar colunas MaxPlayer se não existirem
+        try:
+            cursor.execute('ALTER TABLE resellers ADD COLUMN maxplayer_email TEXT')
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
+        
+        try:
+            cursor.execute('ALTER TABLE resellers ADD COLUMN maxplayer_password TEXT')
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
+        
         # Tabela de sessões
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sessions (
@@ -391,6 +402,35 @@ class Database:
         )
         conn.commit()
         conn.close()
+    
+    def update_reseller_maxplayer_credentials(self, reseller_id, maxplayer_email, maxplayer_password):
+        """Atualiza as credenciais MaxPlayer do revendedor"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE resellers SET maxplayer_email = ?, maxplayer_password = ? WHERE id = ?",
+            (maxplayer_email, maxplayer_password, reseller_id)
+        )
+        conn.commit()
+        conn.close()
+    
+    def get_reseller_maxplayer_credentials(self, reseller_id):
+        """Obtém as credenciais MaxPlayer do revendedor"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT maxplayer_email, maxplayer_password FROM resellers WHERE id = ?",
+            (reseller_id,)
+        )
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result and result[0] and result[1]:
+            return {
+                "email": result[0],
+                "password": result[1]
+            }
+        return None
 
 # Instância global do banco de dados
 db = Database()

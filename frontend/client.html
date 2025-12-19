@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,13 +9,14 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="app-container">
         <div id="loading-overlay" class="loading-overlay hidden">
             <div class="loading-spinner"></div>
             <div class="loading-message">Processando...</div>
         </div>
-        
+
         <div class="container">
             <header class="app-header">
                 <div class="logo">
@@ -35,7 +37,8 @@
                 <form id="client-login-form">
                     <div class="form-group">
                         <label for="client-username"><i class="fas fa-user"></i> Usuário:</label>
-                        <input type="text" id="client-username" name="username" required placeholder="Seu usuário" autocomplete="username" />
+                        <input type="text" id="client-username" name="username" required placeholder="Seu usuário"
+                            autocomplete="username" />
                     </div>
 
                     <button type="submit" class="btn-primary">
@@ -47,10 +50,26 @@
 
             <!-- Seção de Migração -->
             <div id="migration-section" class="card hidden">
+                <!-- Barra de Status dos Servidores -->
+                <div id="client-servers-status-bar" class="servers-status-bar">
+                    <div class="status-bar-header">
+                        <i class="fas fa-server"></i>
+                        <span>Status dos Servidores</span>
+                        <span class="status-last-update"
+                            style="font-size: 0.8em; margin-left: 10px; opacity: 0.8; font-weight: normal;"></span>
+                        <button id="client-refresh-servers-status" class="btn-refresh-mini" title="Atualizar status">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    <div id="client-servers-indicators" class="servers-indicators">
+                        <!-- Servidores serão inseridos aqui dinamicamente -->
+                    </div>
+                </div>
+
                 <div class="card-header">
                     <h2><i class="fas fa-exchange-alt"></i> Migração de Servidor</h2>
                 </div>
-                
+
                 <div class="client-info">
                     <div class="info-item">
                         <span class="info-label"><i class="fas fa-user"></i> Usuário:</span>
@@ -74,20 +93,35 @@
                                 <option value="">Selecione um servidor...</option>
                             </select>
                         </div>
-                        
+
+                        <!-- Checkbox para incluir MaxPlayer -->
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="client-include-maxplayer"
+                                    style="width: 20px; height: 20px; accent-color: var(--primary);">
+                                <span>
+                                    <i class="fas fa-tv"></i> Incluir migração no MaxPlayer
+                                    <small style="display: block; color: #666; margin-top: 5px; font-weight: normal;">
+                                        Migra também no sistema MaxPlayer (recomendado)
+                                    </small>
+                                </span>
+                            </label>
+                        </div>
+
                         <div class="warning-box">
                             <i class="fas fa-exclamation-triangle"></i>
-                            <p><strong>Atenção:</strong> A migração pode levar alguns minutos para ser concluída. Aguarde a confirmação antes de tentar novamente.</p>
+                            <p><strong>Atenção:</strong> A migração pode levar alguns minutos para ser concluída.
+                                Aguarde a confirmação antes de tentar novamente.</p>
                         </div>
-                        
+
                         <button type="submit" class="btn-primary btn-migrate">
                             <i class="fas fa-exchange-alt"></i> Migrar Servidor
                         </button>
                     </form>
                 </div>
-                
+
                 <div id="migration-message" class="message hidden"></div>
-                
+
                 <!-- Modal de Confirmação de Migração -->
                 <div id="migration-modal" class="modal">
                     <div class="modal-content">
@@ -103,7 +137,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="card-footer">
                     <button id="btn-client-logout" class="btn-secondary">
                         <i class="fas fa-sign-out-alt"></i> Sair
@@ -111,12 +145,13 @@
                 </div>
             </div>
         </div>
-        
+
         <footer class="app-footer">
             <p>&copy; 2024 Netplay. Sistema de migração para clientes.</p>
         </footer>
     </div>
-    
+
     <script src="/static/client-script.js"></script>
 </body>
+
 </html>

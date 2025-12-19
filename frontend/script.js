@@ -110,6 +110,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Elementos de Link Fixo do Revendedor ---
 
+    // --- Elementos de Configurações MaxPlayer ---
+    const maxplayerCredentialsForm = document.getElementById('maxplayer-credentials-form');
+    const maxplayerCredentialsStatus = document.getElementById('maxplayer-credentials-status');
+
     // --- Estado da Aplicação ---
     let AUTH_TOKEN = null;
     let CURRENT_RESELLER = null;
@@ -316,6 +320,61 @@ document.addEventListener('DOMContentLoaded', () => {
         batchMigrateCustomers();
     });
 
+    // Event listener para salvar credenciais MaxPlayer
+    if (maxplayerCredentialsForm) {
+        maxplayerCredentialsForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(maxplayerCredentialsForm);
+            const email = formData.get('email');
+            const password = formData.get('password');
+
+            if (!email || !password) {
+                maxplayerCredentialsStatus.textContent = 'Por favor, preencha email e senha.';
+                maxplayerCredentialsStatus.className = 'message error';
+                maxplayerCredentialsStatus.style.display = 'block';
+                return;
+            }
+
+            try {
+                Loading.show('Salvando credenciais MaxPlayer...');
+
+                const response = await fetch('/api/save_maxplayer_credentials', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    maxplayerCredentialsStatus.textContent = data.message;
+                    maxplayerCredentialsStatus.className = 'message success';
+                    maxplayerCredentialsStatus.style.display = 'block';
+                    Toast.show('Credenciais MaxPlayer salvas com sucesso!', 'success');
+
+                    // Limpar formulário após 2 segundos
+                    setTimeout(() => {
+                        maxplayerCredentialsForm.reset();
+                        maxplayerCredentialsStatus.style.display = 'none';
+                    }, 2000);
+                } else {
+                    throw new Error(data.detail || 'Erro ao salvar credenciais');
+                }
+            } catch (error) {
+                maxplayerCredentialsStatus.textContent = error.message;
+                maxplayerCredentialsStatus.className = 'message error';
+                maxplayerCredentialsStatus.style.display = 'block';
+                Toast.show('Erro ao salvar credenciais: ' + error.message, 'error');
+            } finally {
+                Loading.hide();
+            }
+        });
+    }
+
     document.getElementById('cancel-modal-migrar').addEventListener('click', () => Modal.hide('modal-migrar'));
     document.getElementById('close-modal-migrar').addEventListener('click', () => Modal.hide('modal-migrar'));
 
@@ -323,6 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const serverId = serverSelectModal.value;
         const selectedOption = serverSelectModal.options[serverSelectModal.selectedIndex];
         const serverName = selectedOption ? selectedOption.text : null;
+        const includeMaxplayer = document.getElementById('include-maxplayer-checkbox').checked;
 
         if (!serverId) return Toast.show('Selecione um servidor de destino.', 'error');
 
@@ -342,9 +402,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             customers: customersToMigrate,
             server_id: serverId,
-            server_name: serverName
+            server_name: serverName,
+            include_maxplayer: includeMaxplayer
         };
-        Loading.show(`Processando ${customersToMigrate.length} cliente(s)...`);
+
+        const loadingMsg = includeMaxplayer ?
+            `Processando ${customersToMigrate.length} cliente(s) no NetPlay + MaxPlayer...` :
+            `Processando ${customersToMigrate.length} cliente(s)...`;
+        Loading.show(loadingMsg);
 
         try {
             const response = await fetch('/api/batch_migrar', {
@@ -371,9 +436,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 migrarStatusMessage.innerHTML += '<h4>Resultados Detalhados:</h4><ul>';
                 data.results.forEach(res => {
                     const statusClass = res.migration_status.includes('sucesso') ? 'success' : 'error';
+
+                    // Exibir status MaxPlayer se foi solicitado
+                    let maxplayerInfo = '';
+                    if (includeMaxplayer && res.maxplayer_status && res.maxplayer_status !== 'Não solicitado') {
+                        const maxplayerStatus = res.maxplayer_status;
+                        let maxplayerClass = 'info';
+                        if (maxplayerStatus && maxplayerStatus.includes('sucesso')) maxplayerClass = 'success';
+                        if (maxplayerStatus && (maxplayerStatus.includes('Não') || maxplayerStatus.includes('Erro') || maxplayerStatus.includes('Falha'))) {
+                            maxplayerClass = 'error';
+                        }
+                        maxplayerInfo = ` | <strong>MaxPlayer:</strong> <span class="message ${maxplayerClass}" style="padding: 2px 5px; border-radius: 4px;">${maxplayerStatus}</span>`;
+                    }
+
                     migrarStatusMessage.innerHTML += `
                         <li class="message ${statusClass}">
-                            <strong>${res.username}:</strong> ${res.migration_status}
+                            <strong>${res.username}:</strong> NetPlay: ${res.migration_status}${maxplayerInfo}
                         </li>
                     `;
                 });
