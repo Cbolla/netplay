@@ -150,6 +150,12 @@ async def client_page():
     with open("frontend/client.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
+@app.get("/servidores", response_class=HTMLResponse)
+async def servers_page():
+    """Página de monitoramento de servidores"""
+    with open("frontend/servers.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
 @app.get("/r{reseller_id}/client", response_class=HTMLResponse)
 async def client_page_reseller(reseller_id: int):
     """Página do cliente para um revendedor específico usando ID"""
@@ -308,6 +314,47 @@ async def get_servidores_e_planos():
         return {"servers": servers_list}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao obter dados: {e}")
+
+@app.get("/api/servers/status")
+async def check_servers_status():
+    """Verifica o status online/offline dos servidores Netplay"""
+    servers = [
+        {"name": "SEVEN", "url": "http://vr766.com:80"},
+        {"name": "GALAXY", "url": "http://galaxy.netpl4y.com"},
+        {"name": "LUNAR", "url": "http://lunar.netpl4y.com"},
+        {"name": "SPEED", "url": "http://obix.fun"},
+        {"name": "OLYMPUS", "url": "http://olympus.netpl4y.com"},
+        {"name": "EXPLOSION", "url": "http://explosion.netpl4y.com"},
+        {"name": "TITA", "url": "http://tita.netpl4y.com"},
+        {"name": "SKY", "url": "http://facilita.fun:80"},
+        {"name": "SOLAR", "url": "http://solar.netpl4y.com"},
+        {"name": "URANO", "url": "http://cdn.ofmp.site"},
+        {"name": "ATENA", "url": "http://dns.whsv.top:80"},
+        {"name": "ANDROMEDA", "url": "http://socio.gp4.fun"},
+        {"name": "HADES", "url": "http://hades.netpl4y.com"},
+        {"name": "VENUS", "url": "http://venus.netpl4y.com"},
+        {"name": "FIRE", "url": "http://fire.netpl4y.com"}
+    ]
+    
+    results = {}
+    
+    async with httpx.AsyncClient(timeout=1.5) as client:
+        for server in servers:
+            try:
+                response = await client.get(server["url"])
+                results[server["name"]] = {
+                    "online": response.status_code < 500,
+                    "status_code": response.status_code,
+                    "url": server["url"]
+                }
+            except Exception as e:
+                results[server["name"]] = {
+                    "online": False,
+                    "error": str(e),
+                    "url": server["url"]
+                }
+    
+    return {"success": True, "servers": results}
 
 @app.get("/api/client/servers")
 async def get_client_servers():

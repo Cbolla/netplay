@@ -208,8 +208,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sourceServerId) params.append('server_id', sourceServerId);
             // Status fixo para ACTIVE (remoção do filtro de status do UI)
             params.append('status', statusValue);
-            if (pageSizeSelect && pageSizeSelect.value !== 'all') {
-                params.append('perPage', pageSizeSelect.value);
+            if (pageSizeSelect) {
+                // Quando 'all' é selecionado, envia um número grande (9999) para pegar todos os clientes
+                const perPageValue = pageSizeSelect.value === 'all' ? '9999' : pageSizeSelect.value;
+                params.append('perPage', perPageValue);
             }
             if (netplayUserId) {
                 params.append('userId', netplayUserId);
